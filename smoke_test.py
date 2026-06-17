@@ -40,7 +40,7 @@ A4_X_MM, A4_Y_MM = 270.0, 15.0  # top-left of A4 in mm
 # as the y where legs visually separate — but that confounds the smoke test
 # of intrinsic measurement correctness.
 WAIST_HALF = 42.0
-HIP_HALF = 53.0
+HIP_HALF = 62.0
 THIGH_HALF = 28.0
 CALF_HALF = 22.0
 ANKLE_HALF = 18.0
@@ -52,7 +52,8 @@ LEG_H = 260.0
 CROTCH_Y = TOP_Y + YOKE_H
 ANKLE_Y = CROTCH_Y + LEG_H
 
-LEG_OFFSET = 30.0     # > THIGH_HALF, so legs separate immediately at crotch
+# 10 mm gap between leg inner edges at the thigh; ~realistic for jeans.
+LEG_OFFSET = THIGH_HALF + 10.0
 CROTCH_LEG_HALF_OUTER = LEG_OFFSET + THIGH_HALF  # outer extent at crotch row
 
 HIP_RATIO = 0.65
@@ -137,7 +138,8 @@ for k, v in expected.items():
 print("\n--- Running measure_jeans.py ---")
 subprocess.run(
     [sys.executable, "measure_jeans.py", str(IMG_PATH),
-     "--debug-dir", str(DEBUG_DIR), "--json", str(JSON_PATH)],
+     "--debug-dir", str(DEBUG_DIR), "--json", str(JSON_PATH),
+     "--no-click"],
     check=True,
 )
 

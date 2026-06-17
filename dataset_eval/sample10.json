@@ -1,0 +1,12 @@
+[
+  {"ts": "2023_03_17_07_05_37", "brand": "Flash",         "size": "42", "category": "Ladies", "colors": ["Blue"],  "front": "/Users/kristijanbartol/Downloads/circular_fashion_v2/station1/mar2023/front_2023_03_17_07_05_37.jpg"},
+  {"ts": "2023_03_17_07_37_00", "brand": "Dressman",      "size": "44", "category": "Men",    "colors": ["Blue"],  "front": "/Users/kristijanbartol/Downloads/circular_fashion_v2/station1/mar2023/front_2023_03_17_07_37_00.jpg"},
+  {"ts": "2023_03_22_07_12_04", "brand": "Kappahl",       "size": "38", "category": "Ladies", "colors": ["Blue"],  "front": "/Users/kristijanbartol/Downloads/circular_fashion_v2/station1/mar2023/front_2023_03_22_07_12_04.jpg"},
+  {"ts": "2023_03_22_12_30_23", "brand": "H&M",           "size": "38", "category": "Ladies", "colors": ["Blue"],  "front": "/Users/kristijanbartol/Downloads/circular_fashion_v2/station1/mar2023/front_2023_03_22_12_30_23.jpg"},
+  {"ts": "2023_03_27_08_46_42", "brand": "Ralph Lauren",  "size": "36", "category": "Men",    "colors": ["Blue"],  "front": "/Users/kristijanbartol/Downloads/circular_fashion_v2/station1/mar2023/front_2023_03_27_08_46_42.jpg"},
+  {"ts": "2023_04_13_08_14_48", "brand": "Esmara (Lidl)", "size": "38", "category": "Ladies", "colors": ["Blue"],  "front": "/Users/kristijanbartol/Downloads/circular_fashion_v2/station1/apr2023/front_2023_04_13_08_14_48.jpg"},
+  {"ts": "2023_04_20_09_34_07", "brand": "Dr Denim",      "size": "44", "category": "Men",    "colors": ["Blue"],  "front": "/Users/kristijanbartol/Downloads/circular_fashion_v2/station1/apr2023/front_2023_04_20_09_34_07.jpg"},
+  {"ts": "2023_04_20_10_18_45", "brand": "Hugo Boss",     "size": "42", "category": "Men",    "colors": ["Blue"],  "front": "/Users/kristijanbartol/Downloads/circular_fashion_v2/station1/apr2023/front_2023_04_20_10_18_45.jpg"},
+  {"ts": "2023_04_28_08_05_29", "brand": "Kappahl",       "size": "42", "category": "Ladies", "colors": ["Blue"],  "front": "/Users/kristijanbartol/Downloads/circular_fashion_v2/station1/apr2023/front_2023_04_28_08_05_29.jpg"},
+  {"ts": "2023_05_19_10_58_03", "brand": "Nudie Jeans",   "size": "34", "category": "Men",    "colors": ["Black"], "front": "/Users/kristijanbartol/Downloads/circular_fashion_v2/station1/may2023/front_2023_05_19_10_58_03.jpg"}
+]

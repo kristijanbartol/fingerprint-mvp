@@ -1,3 +1,13 @@
 **pycache**
 **out**
 .venv
+.DS_Store
+
+# Generated artifacts (regeneratable from scripts)
+dataset_eval/runs/
+dataset_eval/rembg_out/
+dataset_analysis/
+
+# Local-only assets (not part of the public PoC)
+jeans-sample.jpeg
+pitch_3min.md

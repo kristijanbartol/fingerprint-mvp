@@ -85,6 +85,32 @@ def estimate_background_hsv(img_bgr):
     return np.median(border, axis=0).astype(np.float32)
 
 
+def foreground_mask_tile_bg(img_bgr):
+    """Segment a garment against the Circular-Fashion tile-grid background.
+
+    Background = bright white tiles. The grout lines between tiles are thin
+    (~5 px at 1280×720) and dark — we cannot mark "dark = background" because
+    that eats black denim. Instead we mark only white-ish pixels as background
+    and rely on a generous morphological open to erase the thin grout pattern.
+    Everything else (jeans body + any non-grid clutter like cables, devices)
+    becomes foreground; the largest connected blob is the garment.
+    """
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    s, v = hsv[..., 1], hsv[..., 2]
+    bg_white = (s < 50) & (v > 160)
+    fg = (~bg_white).astype(np.uint8) * 255
+    # 13×13 ellipse: wide enough to break the ~5 px grout lattice, narrow
+    # enough to preserve narrow jeans cuffs (typically 30-50 px wide).
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
+    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, k)
+    fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, k)
+    num, lab, stats, _ = cv2.connectedComponentsWithStats(fg, connectivity=8)
+    if num < 2:
+        return fg
+    idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    return (lab == idx).astype(np.uint8) * 255
+
+
 def foreground_mask(img_bgr, bg_hsv):
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV).astype(np.float32)
     dh = np.abs(hsv[..., 0] - bg_hsv[0])
@@ -100,6 +126,14 @@ def foreground_mask(img_bgr, bg_hsv):
 
 
 def detect_a4(img_bgr, fg_mask):
+    """Pick the foreground blob that best matches an A4 sheet.
+
+    Scoring combines:
+      - solidity (contour area / min-area-rect area): a sheet fills its bbox.
+      - aspect-ratio match to 297/210 = 1.414.
+    Picking by size alone fails when a same-colored garment dominates the scene,
+    so we explicitly reward rectangle-ness.
+    """
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     bright = (hsv[..., 1] < A4_S_MAX) & (hsv[..., 2] > A4_V_MIN)
     cand = (bright & (fg_mask > 0)).astype(np.uint8) * 255
@@ -109,25 +143,117 @@ def detect_a4(img_bgr, fg_mask):
     cnts, _ = cv2.findContours(cand, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not cnts:
         return None, None
-    c = max(cnts, key=cv2.contourArea)
-    if cv2.contourArea(c) < 1000:
+
+    a4_aspect = A4_LONG_MM / A4_SHORT_MM  # 1.4143
+    min_area = 0.001 * fg_mask.shape[0] * fg_mask.shape[1]
+    best_score = -1.0
+    best_c = None
+    best_rect = None
+    for c in cnts:
+        area = cv2.contourArea(c)
+        if area < min_area:
+            continue
+        rect = cv2.minAreaRect(c)
+        (_, _), (w, h), _ = rect
+        if w <= 0 or h <= 0:
+            continue
+        rect_area = w * h
+        solidity = area / rect_area
+        aspect = max(w, h) / min(w, h)
+        aspect_score = max(0.0, 1.0 - abs(aspect - a4_aspect) / 0.5)
+        score = solidity * aspect_score
+        if score > best_score:
+            best_score = score
+            best_c = c
+            best_rect = rect
+
+    if best_c is None or best_score < 0.4:
         return None, None
-    rect = cv2.minAreaRect(c)
-    corners = cv2.boxPoints(rect).astype(np.float32)
+    corners = cv2.boxPoints(best_rect).astype(np.float32)
     mask = np.zeros_like(fg_mask)
-    cv2.drawContours(mask, [c], -1, 255, cv2.FILLED)
+    cv2.drawContours(mask, [best_c], -1, 255, cv2.FILLED)
     return corners, mask
 
 
-def isolate_jeans(fg_mask, a4_mask):
-    j = ((fg_mask > 0) & (a4_mask == 0)).astype(np.uint8) * 255
-    j = cv2.morphologyEx(j, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
-    j = cv2.morphologyEx(j, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-    num, lab, stats, _ = cv2.connectedComponentsWithStats(j, connectivity=8)
+def isolate_jeans(img_bgr, fg_mask, a4_mask, click_point=None, max_dim=900, iterations=4):
+    """Segment the jeans via GrabCut, seeded from the rough color mask and A4.
+
+    Color thresholding alone fails when the garment and the surface are close
+    in HSV (e.g. beige jeans on a wood floor). GrabCut models foreground and
+    background as Gaussian mixtures and uses spatial smoothness, so it can
+    pull the jeans/floor boundary along weak local edges.
+
+    Seeding:
+      - Image border (3% band) + dilated A4 region: definite background.
+      - If `click_point` is provided: the rough-foreground blob containing the
+        click is used as the foreground seed (eroded); all OTHER rough-fg blobs
+        become definite background. This is the most reliable seeding: one
+        click disambiguates which blob is the garment.
+      - Otherwise (auto): heavily eroded core of the largest (rough_fg − A4)
+        blob is the foreground seed.
+      - Everything else: probable foreground.
+
+    Downsampled for speed; result upsampled back to the original resolution.
+    """
+    H, W = img_bgr.shape[:2]
+    scale = min(1.0, max_dim / max(H, W))
+    new_w = max(1, int(W * scale))
+    new_h = max(1, int(H * scale))
+    img_s = cv2.resize(img_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    a4_s = cv2.resize(a4_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+    fg_s = cv2.resize(fg_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+
+    a4_dilated = cv2.dilate(a4_s, np.ones((11, 11), np.uint8))
+    b = max(1, int(min(new_h, new_w) * 0.03))
+
+    if click_point is not None:
+        # Click mode: tight ROI around the click. Everything outside a generous
+        # disk is definite background. This pins GrabCut to the garment region.
+        gc = np.full((new_h, new_w), cv2.GC_BGD, dtype=np.uint8)
+        cx_s = int(round(click_point[0] * scale))
+        cy_s = int(round(click_point[1] * scale))
+        search_r = int(min(new_h, new_w) * 0.55)
+        cv2.circle(gc, (cx_s, cy_s), search_r, int(cv2.GC_PR_FGD), -1)
+        # Re-apply background constraints (A4 + border) inside the ROI.
+        gc[a4_dilated > 0] = cv2.GC_BGD
+        gc[:b, :] = cv2.GC_BGD
+        gc[-b:, :] = cv2.GC_BGD
+        gc[:, :b] = cv2.GC_BGD
+        gc[:, -b:] = cv2.GC_BGD
+        # Definite foreground: small disk centered on the click.
+        fg_r = max(8, int(min(new_h, new_w) * 0.04))
+        cv2.circle(gc, (cx_s, cy_s), fg_r, int(cv2.GC_FGD), -1)
+    else:
+        # Auto mode: start with PR_FGD everywhere, use rough color mask for hints.
+        gc = np.full((new_h, new_w), cv2.GC_PR_FGD, dtype=np.uint8)
+        gc[:b, :] = cv2.GC_BGD
+        gc[-b:, :] = cv2.GC_BGD
+        gc[:, :b] = cv2.GC_BGD
+        gc[:, -b:] = cv2.GC_BGD
+        gc[a4_dilated > 0] = cv2.GC_BGD
+        fg_minus_a4 = ((fg_s > 0) & (a4_dilated == 0)).astype(np.uint8) * 255
+        num, lab, stats, _ = cv2.connectedComponentsWithStats(fg_minus_a4, connectivity=8)
+        if num >= 2:
+            chosen_idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+            big = (lab == chosen_idx).astype(np.uint8) * 255
+            eroded = cv2.erode(big, np.ones((25, 25), np.uint8), iterations=2)
+            gc[eroded > 0] = cv2.GC_FGD
+
+    bgd_model = np.zeros((1, 65), np.float64)
+    fgd_model = np.zeros((1, 65), np.float64)
+    cv2.grabCut(img_s, gc, None, bgd_model, fgd_model, iterations, cv2.GC_INIT_WITH_MASK)
+
+    mask_s = ((gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD)).astype(np.uint8) * 255
+    # Upsample first, then do morphology at full resolution. Doing OPEN at the
+    # downsampled scale would close the gap between the two legs (only a few
+    # pixels wide once downsampled). At full res, the leg gap is much wider
+    # than the kernel, so the legs stay separate.
+    mask_full = cv2.resize(mask_s, (W, H), interpolation=cv2.INTER_NEAREST)
+    mask_full = cv2.morphologyEx(mask_full, cv2.MORPH_OPEN, np.ones((11, 11), np.uint8))
+    num, lab, stats, _ = cv2.connectedComponentsWithStats(mask_full, connectivity=8)
     if num < 2:
         return None
-    areas = stats[1:, cv2.CC_STAT_AREA]
-    idx = 1 + int(np.argmax(areas))
+    idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     return (lab == idx).astype(np.uint8) * 255
 
 
@@ -270,20 +396,41 @@ def ensure_upright(img, mask):
     return img, mask, False
 
 
-def vertical_extent(mask):
-    ys = np.where(mask.sum(axis=1) > 0)[0]
+def vertical_extent(mask, width_frac=0.5):
+    """First/last row whose width is at least `width_frac` of peak width.
+
+    The naive first/last-non-zero-row picks tilted corners of the waistband
+    and cuff — a single pixel poking up or down from a sub-pixel-tilted mask
+    is enough to collapse waist/ankle to a few millimeters. Requiring at
+    least half the peak width skips those corner pixels and lands on the
+    actual flat waistband / cuff region.
+    """
+    widths = (mask > 0).sum(axis=1)
+    if widths.max() == 0:
+        return 0, mask.shape[0] - 1
+    threshold = widths.max() * width_frac
+    ys = np.where(widths >= threshold)[0]
+    if len(ys) == 0:
+        ys = np.where(widths > 0)[0]
     return int(ys[0]), int(ys[-1])
 
 
-def find_crotch(mask, confirm=5):
-    """Scan rows bottom→top. The crotch is where the two-leg split closes into one run.
+def find_crotch(mask, y_top, y_bottom, confirm=5):
+    """Locate the crotch row, restricted to [y_top, y_bottom].
 
-    Returns the y just below the last consistently 2-run region.
+    Primary: scan bottom→top within the anatomical extent and return the y
+    just below the last consistently 2-run region. Works on jeans laid with
+    a visible inter-leg gap.
+
+    Fallback (touching-leg jeans, no gap in the mask): use the row-width
+    profile. Width climbs from the waistband, peaks at the hip, then narrows
+    at the inseam — that minimum is the crotch. Below the crotch the silhouette
+    may stay similar or widen (bootcut/spread). Restrict the search to between
+    the hip peak and 85% of the anatomical span so we don't pick the cuff.
     """
-    h = mask.shape[0]
     streak = 0
     last_split_y = None
-    for y in range(h - 1, -1, -1):
+    for y in range(y_bottom, y_top - 1, -1):
         row = mask[y]
         if row.sum() == 0:
             streak = 0
@@ -296,7 +443,17 @@ def find_crotch(mask, confirm=5):
             streak += 1
             if last_split_y is not None and streak >= confirm:
                 return y + confirm
-    return None
+
+    widths = (mask > 0).sum(axis=1)
+    span = y_bottom - y_top
+    if span < 50:
+        return None
+    upper = y_top + int(span * 0.6)
+    peak_y = y_top + int(np.argmax(widths[y_top:upper + 1]))
+    lower = y_top + int(span * 0.85)
+    if lower - peak_y < 20:
+        return None
+    return peak_y + int(np.argmin(widths[peak_y:lower + 1]))
 
 
 def measure_width_at(mask, y, leg=None, half_band=WIDTH_BAND):
@@ -311,10 +468,13 @@ def measure_width_at(mask, y, leg=None, half_band=WIDTH_BAND):
         if leg is None:
             widths.append(runs[-1][1] - runs[0][0])
         else:
-            if len(runs) < 2:
-                continue
-            sel = runs[0] if leg == "left" else runs[-1]
-            widths.append(sel[1] - sel[0])
+            if len(runs) >= 2:
+                sel = runs[0] if leg == "left" else runs[-1]
+                widths.append(sel[1] - sel[0])
+            else:
+                # Touching legs: no inter-leg gap visible in this row. Approximate
+                # the single-leg width as half the full row span (symmetric jeans).
+                widths.append((runs[-1][1] - runs[0][0]) / 2.0)
     if not widths:
         return None
     return float(np.mean(widths)), float(np.std(widths))
@@ -363,27 +523,87 @@ def build_measurement(mask, y0, region_h, ratio, leg, px_per_mm, scale_unc):
     }
 
 
-def measure_jeans(image_path, px_per_mm=PX_PER_MM, debug_dir=None):
+def _segment_with_rembg(img_bgr):
+    """Run rembg (U²-Net) and return a binary mask (uint8 0/255) of the garment.
+
+    Imported lazily so the rest of the pipeline doesn't require the heavyweight
+    onnxruntime dependency.
+    """
+    from rembg import remove, new_session  # noqa: WPS433  (lazy import)
+    session = _segment_with_rembg._session
+    if session is None:
+        session = new_session("u2net")
+        _segment_with_rembg._session = session
+    rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    rgba = remove(rgb, session=session)
+    alpha = rgba[..., 3]
+    mask = (alpha > 127).astype(np.uint8) * 255
+    num, lab, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    if num < 2:
+        return mask
+    idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    return (lab == idx).astype(np.uint8) * 255
+
+
+_segment_with_rembg._session = None
+
+
+def measure_jeans(image_path, px_per_mm=PX_PER_MM, debug_dir=None, click_point=None,
+                  manual_px_per_mm=None, use_rembg=False):
+    """Run the full pipeline.
+
+    If `manual_px_per_mm` is given, skip A4 detection and homography rectification —
+    use the input image as-is and measure widths against the supplied scale.
+    If `use_rembg` is True, use the rembg U²-Net segmenter for the foreground
+    mask (much cleaner than the tile-background heuristic on arbitrary photos).
+    """
     img = load_image(image_path)
-    bg = estimate_background_hsv(img)
-    fg = foreground_mask(img, bg)
-    a4_corners, a4_mask = detect_a4(img, fg)
-    if a4_corners is None:
-        raise RuntimeError("A4 paper not detected. Check background contrast and protocol.")
-    jeans = isolate_jeans(fg, a4_mask)
+
+    if manual_px_per_mm is None:
+        bg = estimate_background_hsv(img)
+        fg = foreground_mask(img, bg)
+        a4_corners, a4_mask = detect_a4(img, fg)
+        if a4_corners is None:
+            raise RuntimeError("A4 paper not detected. Check background contrast and protocol.")
+        scale_unc = scale_uncertainty(a4_corners)
+        jeans = isolate_jeans(img, fg, a4_mask, click_point=click_point)
+    else:
+        a4_corners = None
+        if use_rembg:
+            fg = _segment_with_rembg(img)
+        else:
+            fg = foreground_mask_tile_bg(img)
+        a4_mask = np.zeros_like(fg)
+        # Manual mode: no per-photo scale uncertainty estimate. Use a fixed floor
+        # that reflects rough eyeballing precision (~3%).
+        scale_unc = 0.03
+        jeans = fg
+
     if jeans is None:
         raise RuntimeError("Jeans not detected in foreground.")
 
-    scale_unc = scale_uncertainty(a4_corners)
+    if manual_px_per_mm is None:
+        img_rect, masks_rect = rectify(img, {"jeans": jeans, "a4": a4_mask}, a4_corners, px_per_mm)
+        jeans_rect = masks_rect["jeans"]
+        effective_px_per_mm = px_per_mm
+    else:
+        img_rect = img
+        jeans_rect = jeans
+        effective_px_per_mm = manual_px_per_mm
 
-    img_rect, masks_rect = rectify(img, {"jeans": jeans, "a4": a4_mask}, a4_corners, px_per_mm)
-    jeans_rect = masks_rect["jeans"]
-
-    img_rot, mask_rot, _ = rotate_to_vertical(img_rect, jeans_rect)
+    if manual_px_per_mm is None:
+        img_rot, mask_rot, _ = rotate_to_vertical(img_rect, jeans_rect)
+    else:
+        # Dataset prior: pants are landscape with waistband to the right.
+        # A 90° CW rotation makes the waistband sit at the top. This avoids
+        # PCA's bias on Y-shaped silhouettes (principal axis can lock onto
+        # the leg-spread diagonal instead of the body axis).
+        img_rot = cv2.rotate(img_rect, cv2.ROTATE_90_CLOCKWISE)
+        mask_rot = cv2.rotate(jeans_rect, cv2.ROTATE_90_CLOCKWISE)
     img_rot, mask_rot, flipped = ensure_upright(img_rot, mask_rot)
 
     y_top, y_bottom = vertical_extent(mask_rot)
-    y_crotch = find_crotch(mask_rot)
+    y_crotch = find_crotch(mask_rot, y_top, y_bottom)
     if y_crotch is None or y_crotch <= y_top or y_crotch >= y_bottom:
         raise RuntimeError("Crotch point detection failed.")
 
@@ -394,12 +614,12 @@ def measure_jeans(image_path, px_per_mm=PX_PER_MM, debug_dir=None):
     for name, ratio in YOKE_RATIOS.items():
         results[name] = build_measurement(
             mask_rot, y_top, yoke_h, ratio, leg=None,
-            px_per_mm=px_per_mm, scale_unc=scale_unc,
+            px_per_mm=effective_px_per_mm, scale_unc=scale_unc,
         )
     for name, ratio in LEG_RATIOS.items():
         results[name] = build_measurement(
             mask_rot, y_crotch, leg_h, ratio, leg="left",
-            px_per_mm=px_per_mm, scale_unc=scale_unc,
+            px_per_mm=effective_px_per_mm, scale_unc=scale_unc,
         )
 
     if debug_dir is not None:
@@ -407,7 +627,8 @@ def measure_jeans(image_path, px_per_mm=PX_PER_MM, debug_dir=None):
 
     return {
         "image": str(image_path),
-        "px_per_mm": px_per_mm,
+        "px_per_mm": effective_px_per_mm,
+        "manual_scale": manual_px_per_mm is not None,
         "scale_uncertainty_rel": scale_unc,
         "y_top": y_top,
         "y_crotch": y_crotch,
@@ -455,15 +676,84 @@ def save_debug(debug_dir, img_orig, fg_mask, a4_mask, jeans_mask,
 # CLI
 # ---------------------------------------------------------------------------
 
+def interactive_click(image_path, max_display=1000):
+    """Open a window, capture a single click, return (x, y) in original image coords.
+
+    User interaction: click once on the jeans body, then press any key. Esc cancels.
+    """
+    img = load_image(image_path)
+    h, w = img.shape[:2]
+    scale = min(1.0, max_display / max(h, w))
+    if scale < 1.0:
+        disp_base = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    else:
+        disp_base = img.copy()
+
+    state = {"click": None}
+
+    def cb(event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            state["click"] = (x, y)
+
+    window = "Click on the jeans body, then press any key (Esc to cancel)"
+    cv2.namedWindow(window, cv2.WINDOW_AUTOSIZE)
+    cv2.setMouseCallback(window, cb)
+    try:
+        while True:
+            display = disp_base.copy()
+            if state["click"] is not None:
+                cv2.circle(display, state["click"], 10, (0, 0, 0), 3)
+                cv2.circle(display, state["click"], 10, (0, 255, 255), -1)
+            cv2.imshow(window, display)
+            key = cv2.waitKey(20) & 0xFF
+            if key == 27:
+                raise RuntimeError("Click cancelled by user")
+            if key != 255 and state["click"] is not None:
+                break
+    finally:
+        cv2.destroyAllWindows()
+
+    cx, cy = state["click"]
+    return int(round(cx / scale)), int(round(cy / scale))
+
+
+def parse_click(s):
+    if s is None:
+        return None
+    parts = s.replace(" ", "").split(",")
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError("expected --click x,y")
+    return int(parts[0]), int(parts[1])
+
+
 def main():
     p = argparse.ArgumentParser(description="Measure jeans from a top-down photo with an A4 reference.")
     p.add_argument("image", type=Path, help="Input image path (jpg/png/heic).")
     p.add_argument("--debug-dir", type=Path, default=None, help="Write intermediate images here.")
     p.add_argument("--px-per-mm", type=float, default=PX_PER_MM, help="Rectified resolution (default 4).")
     p.add_argument("--json", type=Path, default=None, help="Write the full result as JSON here.")
+    p.add_argument("--click", type=parse_click, default=None,
+                   help="Seed coordinates 'x,y' on the jeans (skips interactive prompt).")
+    p.add_argument("--no-click", action="store_true",
+                   help="Disable both interactive click and --click seeding.")
+    p.add_argument("--manual-px-per-mm", type=float, default=None,
+                   help="Skip A4 detection + homography. Use the given px/mm of the raw image directly. "
+                        "For the Circular Fashion dataset (10cm tiles, ~66 px) use ~0.66.")
+    p.add_argument("--rembg", action="store_true",
+                   help="Use the rembg U^2-Net segmenter for the foreground mask "
+                        "(requires --manual-px-per-mm; replaces the tile-background heuristic).")
     args = p.parse_args()
+    if args.rembg and args.manual_px_per_mm is None:
+        p.error("--rembg currently only runs alongside --manual-px-per-mm")
 
-    result = measure_jeans(args.image, px_per_mm=args.px_per_mm, debug_dir=args.debug_dir)
+    click_point = args.click
+    if click_point is None and not args.no_click and not args.rembg:
+        click_point = interactive_click(args.image)
+        print(f"Click seed: {click_point}")
+
+    result = measure_jeans(args.image, px_per_mm=args.px_per_mm, debug_dir=args.debug_dir,
+                           click_point=click_point, manual_px_per_mm=args.manual_px_per_mm,
+                           use_rembg=args.rembg)
 
     print(f"Image: {result['image']}")
     print(f"Scale uncertainty: {result['scale_uncertainty_rel'] * 100:.2f}%")

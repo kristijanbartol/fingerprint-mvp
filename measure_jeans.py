@@ -35,8 +35,14 @@ A4_LONG_MM = 297.0
 
 # Measurement positions (ratios). Yoke: 0 = waistband, 1 = crotch.
 # Leg: 0 = crotch, 1 = cuff.
-YOKE_RATIOS = {"waist": 0.0, "hip": 0.65}
-LEG_RATIOS = {"thigh": 0.05, "calf": 0.70, "ankle": 1.0}
+# Waist at 0.05 rather than 0.0: ratio 0.0 lands on the top edge of the
+# waistband band where the mask narrows from corner stitching/curvature;
+# 0.05 of yoke_h centres on the band proper.
+YOKE_RATIOS = {"waist": 0.05, "hip": 0.65}
+# Ankle at 0.95 rather than 1.0: ratio 1.0 lands on the cuff hem's bottom
+# edge where the mask tapers to a narrow row; 0.95 of leg_h centres on the
+# cuff opening proper. Symmetric to the waist=0.05 offset.
+LEG_RATIOS = {"thigh": 0.05, "calf": 0.70, "ankle": 0.95}
 
 # Width sampling: average over y ± WIDTH_BAND rows.
 WIDTH_BAND = 3
@@ -415,6 +421,35 @@ def vertical_extent(mask, width_frac=0.5):
     return int(ys[0]), int(ys[-1])
 
 
+def leg_bottoms(mask, y_crotch):
+    """Last row (per leg) where the leg's run has length >= MIN_RUN_PX.
+
+    The anatomical y_bottom (50% of peak width) lands inside the spread-leg
+    region for flared/bootcut jeans — peak width is the spread itself, the
+    cuffs are much narrower than the peak. Per-leg scanning gives the actual
+    cuff row even when the legs splay outward.
+    """
+    h = mask.shape[0]
+    y_left = y_crotch
+    y_right = y_crotch
+    for y in range(y_crotch + 1, h):
+        runs = runs_in_row(mask[y])
+        if not runs:
+            continue
+        if len(runs) >= 2:
+            left, right = runs[0], runs[-1]
+            if left[1] - left[0] >= MIN_RUN_PX:
+                y_left = y
+            if right[1] - right[0] >= MIN_RUN_PX:
+                y_right = y
+        else:
+            # Single-run row (touching legs near the cuff): credit both.
+            if runs[0][1] - runs[0][0] >= MIN_RUN_PX:
+                y_left = y
+                y_right = y
+    return y_left, y_right
+
+
 def find_crotch(mask, y_top, y_bottom, confirm=5):
     """Locate the crotch row, restricted to [y_top, y_bottom].
 
@@ -608,7 +643,15 @@ def measure_jeans(image_path, px_per_mm=PX_PER_MM, debug_dir=None, click_point=N
         raise RuntimeError("Crotch point detection failed.")
 
     yoke_h = y_crotch - y_top
-    leg_h = y_bottom - y_crotch
+    # Per-leg cuff (each leg ends at a different row when the jeans are spread
+    # or asymmetric). Use the closer cuff as the leg-end for the linear ratio
+    # interpolation; ratio 1.0 then lands at an actual cuff, not in the
+    # spread-leg widest section.
+    y_left, y_right = leg_bottoms(mask_rot, y_crotch)
+    y_leg_end = min(y_left, y_right)
+    leg_h = y_leg_end - y_crotch
+    if leg_h <= 0:
+        leg_h = y_bottom - y_crotch  # fallback if per-leg scan returned nothing
 
     results = {}
     for name, ratio in YOKE_RATIOS.items():

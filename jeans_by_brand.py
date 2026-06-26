@@ -2,16 +2,21 @@
 
 A 'named brand' = brand field is set, non-empty, and not one of the
 sentinel values ('Not in the list', 'Missing').
+
+Usage:
+    python jeans_by_brand.py --dataset-root PATH
+    CIRCULAR_FASHION_ROOT=PATH python jeans_by_brand.py
 """
 
+import argparse
 import json
+import os
 from collections import Counter
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 
 
-ROOT = Path("/Users/kristijanbartol/Downloads/circular_fashion_v2")
 SENTINEL = {"", "not in the list", "missing", "none"}
 
 
@@ -28,12 +33,20 @@ def is_tile_grid(month_folder):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dataset-root", default=os.environ.get("CIRCULAR_FASHION_ROOT"),
+                    help="Path to the circular_fashion_v2 dataset (or set CIRCULAR_FASHION_ROOT).")
+    args = ap.parse_args()
+    if not args.dataset_root:
+        ap.error("--dataset-root or CIRCULAR_FASHION_ROOT env var is required")
+    root = Path(args.dataset_root)
+
     counts = Counter()
     total_jeans = 0
     named = 0
     unnamed = Counter()
 
-    for station_dir in sorted(ROOT.glob("station*")):
+    for station_dir in sorted(root.glob("station*")):
         for month_dir in station_dir.iterdir():
             if not month_dir.is_dir() or not is_tile_grid(month_dir):
                 continue

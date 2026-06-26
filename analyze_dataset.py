@@ -2,11 +2,14 @@
 plots + a printable summary.
 
 Usage:
-    python analyze_dataset.py [--dataset-root PATH] [--out-dir PATH]
+    python analyze_dataset.py --dataset-root PATH [--out-dir PATH]
+
+The dataset root can also be supplied via the CIRCULAR_FASHION_ROOT env var.
 """
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import Counter, defaultdict
@@ -15,7 +18,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 
-DEFAULT_ROOT = "/Users/kristijanbartol/Downloads/circular_fashion_v2"
 DEFAULT_OUT = "dataset_analysis"
 
 PANTS_TYPES = {"Jeans", "Trousers", "Shorts", "Tights", "Rain trousers", "Winter trousers"}
@@ -198,9 +200,12 @@ def heatmap(matrix, row_labels, col_labels, title, out_path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset-root", default=DEFAULT_ROOT)
+    ap.add_argument("--dataset-root", default=os.environ.get("CIRCULAR_FASHION_ROOT"),
+                    help="Path to the circular_fashion_v2 dataset (or set CIRCULAR_FASHION_ROOT).")
     ap.add_argument("--out-dir", default=DEFAULT_OUT)
     args = ap.parse_args()
+    if not args.dataset_root:
+        ap.error("--dataset-root or CIRCULAR_FASHION_ROOT env var is required")
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

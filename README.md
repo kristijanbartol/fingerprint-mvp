@@ -5,6 +5,8 @@ top-down photo of jeans (or trousers) laid flat. Targets the
 [Circular Fashion v2](https://fnauman.github.io/second-hand-fashion/)
 dataset's 10×10 cm tile-grid background as a scale reference.
 
+![Annotated measurement of a pair of black Nudie Jeans on the tile grid background](docs/featured_nudie.jpg)
+
 This is a research-grade PoC. The numbers are plausible across a 10-jeans
 validation slice — see [Results](#results) — but there are known geometry
 edge cases that have not been fixed yet (see
@@ -42,6 +44,22 @@ pip install -r requirements.txt
 
 The first `--rembg` run downloads ~176 MB of ONNX weights to `~/.u2net/`.
 
+## Try it on the bundled examples
+
+Two sample images from the dataset are bundled in [`examples/`](examples/)
+under CC-BY 4.0 (see [examples/ATTRIBUTION.md](examples/ATTRIBUTION.md))
+so you can reproduce the pipeline without downloading the full dataset:
+
+```bash
+python measure_jeans.py examples/nudie_jeans.jpg \
+    --no-click --manual-px-per-mm 0.66 --rembg \
+    --debug-dir out/nudie --json out/nudie/result.json
+```
+
+The debug folder gets the input, the segmentation mask, the rotated mask,
+and an annotated overlay showing the five landmark rows. The JSON has
+per-measurement circumferences, uncertainty and component breakdown.
+
 ## Usage
 
 Single image, rembg segmentation:
@@ -51,10 +69,6 @@ python measure_jeans.py path/to/jeans.jpg \
     --no-click --manual-px-per-mm 0.66 --rembg \
     --debug-dir out/ --json out/result.json
 ```
-
-Outputs a debug folder with the input, segmentation mask, rotated mask,
-and an annotated image showing the five landmark rows; plus a JSON file
-with per-measurement circumference, uncertainty and component breakdown.
 
 Reproduce the 10-jeans validation table:
 
@@ -86,7 +100,18 @@ dataset's labelled EU numerics. The dataset has no ground-truth
 measurements; these are plausibility checks against known size–dimension
 ranges.
 
+Another sample, light-blue H&M (size 38) — note how the mask outline
+(yellow) hugs the actual jeans even where it sits close to the tile grid:
+
+![Annotated measurement of a pair of light-blue H&M jeans](docs/demo_hm.jpg)
+
 ## Dataset analysis
+
+The pants subset of Circular Fashion v2:
+
+![Pants subset by type: 3197 Trousers, 1602 Jeans, 1025 Shorts, 573 Tights, 49 Rain trousers, 42 Winter trousers](docs/dataset_pants_distribution.png)
+
+To regenerate this plot and ~20 others:
 
 ```bash
 export CIRCULAR_FASHION_ROOT=/path/to/circular_fashion_v2

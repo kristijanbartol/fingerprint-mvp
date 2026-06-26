@@ -5,7 +5,9 @@ top-down photo of jeans (or trousers) laid flat. Targets the
 [Circular Fashion v2](https://fnauman.github.io/second-hand-fashion/)
 dataset's 10×10 cm tile-grid background as a scale reference.
 
-![Annotated measurement of a pair of black Nudie Jeans on the tile grid background](docs/featured_nudie.jpg)
+<p align="center">
+  <img src="docs/featured_nudie.jpg" alt="Annotated measurement of a pair of black Nudie Jeans on the tile grid background" width="360">
+</p>
 
 This is a research-grade PoC. The numbers are plausible across a 10-jeans
 validation slice — see [Results](#results) — but there are known geometry
@@ -103,7 +105,9 @@ ranges.
 Another sample, light-blue H&M (size 38) — note how the mask outline
 (yellow) hugs the actual jeans even where it sits close to the tile grid:
 
-![Annotated measurement of a pair of light-blue H&M jeans](docs/demo_hm.jpg)
+<p align="center">
+  <img src="docs/demo_hm.jpg" alt="Annotated measurement of a pair of light-blue H&M jeans" width="360">
+</p>
 
 ## Dataset analysis
 

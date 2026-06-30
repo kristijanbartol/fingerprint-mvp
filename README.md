@@ -123,6 +123,32 @@ python analyze_dataset.py                # 20+ summary plots in dataset_analysis
 python jeans_by_brand.py                 # named-brand histogram
 ```
 
+## Hip-consistency analysis (242 jeans)
+
+Survey the named-brand tile-grid jeans subset, measure hip-only at
+`--manual-px-per-mm 0.66`, dump a CSV (already checked in:
+[`dataset_eval/hip_survey.csv`](dataset_eval/hip_survey.csv) — 242 rows,
+98.3% pipeline survival), then compute within-brand hip *consistency*
+controlling for labelled size, garment category (Ladies / Men) and cut
+(Regular / Tight / Loose / Bootcut / …):
+
+```bash
+export CIRCULAR_FASHION_ROOT=/path/to/circular_fashion_v2
+python dataset_eval/hip_survey.py        # → dataset_eval/hip_survey.csv
+python dataset_eval/hip_plot.py          # → 22_hip_by_brand.png, 23_hip_by_size.png
+python dataset_eval/hip_consistency.py   # → 24_hip_consistency_by_brand.png
+```
+
+<p align="center">
+  <img src="docs/hip_consistency_controls.png" alt="Within-brand hip residual std at three control levels: brand+size, +category, +category+cut" width="640">
+</p>
+
+When you only control for labelled size, H&M looks roughly 1.7× less
+consistent than the mid-pack. Add `cut` to the control and the gap
+nearly closes — most of the apparent cross-brand inconsistency was
+brands bundling more silhouette variants under each EU number, not
+actual sizing variance.
+
 ## Known limitations
 
 - **Scale is eyeballed** (0.66 px/mm). Cross-image accuracy needs per-image

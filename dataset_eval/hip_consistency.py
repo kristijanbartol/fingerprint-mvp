@@ -206,19 +206,10 @@ def plot_single_brand_progression(summaries, level_labels, focus_brand,
         ]
     ax.set_xticks(x)
     ax.set_xticklabels(short_labels[:len(bars)], fontsize=10)
-    if sigma_pipe > 0:
-        ax.set_ylabel("Garment-side hip std (mm)", fontsize=11)
-        subtitle = (
-            f"pipeline noise (σ_pipe ≈ {sigma_pipe:.0f} mm) subtracted in "
-            f"quadrature; error bars are 95% bootstrap CI"
-        )
-    else:
-        ax.set_ylabel("Hip std within a label (mm)", fontsize=11)
-        subtitle = "error bars are 95% bootstrap CI"
+    ax.set_ylabel("Hip variation, std (mm)", fontsize=11)
     ax.set_title(
-        f"{focus_brand}: hip variation within a label, by control level\n"
-        f"{subtitle}",
-        fontsize=11,
+        f"{focus_brand}: hip variation within the same labelled size",
+        fontsize=12,
     )
     ax.set_ylim(0, max(b["hi"] for b in bars) * 1.12)
     ax.grid(axis="y", alpha=0.3, zorder=0)

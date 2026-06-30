@@ -162,7 +162,8 @@ def _quad_subtract(x, sigma):
 
 
 def plot_single_brand_progression(summaries, level_labels, focus_brand,
-                                  out_path, sigma_pipe=0.0):
+                                  out_path, sigma_pipe=0.0,
+                                  short_labels=None):
     """3 vertical bars for one brand across control levels.
 
     If sigma_pipe > 0, subtract it from the std (and CI bounds) in
@@ -197,11 +198,12 @@ def plot_single_brand_progression(summaries, level_labels, focus_brand,
                 ha="center", va="bottom", fontsize=13, fontweight="bold",
                 zorder=4)
 
-    short_labels = [
-        "same size\nonly",
-        "same size\n+ same category",
-        "same size\n+ same cut",
-    ]
+    if short_labels is None:
+        short_labels = [
+            "same size\nonly",
+            "same size\n+ same category",
+            "same size\n+ same cut",
+        ]
     ax.set_xticks(x)
     ax.set_xticklabels(short_labels[:len(bars)], fontsize=10)
     if sigma_pipe > 0:
@@ -255,9 +257,18 @@ def main():
 
     plot_grouped(summaries, labels,
                  args.out_dir / "24_hip_consistency_by_brand.png")
-    plot_single_brand_progression(summaries, labels, args.focus_brand,
-                                  args.out_dir / "25_hip_consistency_focus.png",
-                                  sigma_pipe=args.sigma_pipe)
+    # Focus plot: skip the size-only bar (category mostly just filters to
+    # Ladies anyway since 94% of jeans are Ladies). The interesting
+    # narrative is "Ladies H&M at the same size → and then add cut."
+    plot_single_brand_progression(
+        summaries[1:], labels[1:], args.focus_brand,
+        args.out_dir / "25_hip_consistency_focus.png",
+        sigma_pipe=args.sigma_pipe,
+        short_labels=[
+            "same size, Ladies\n(no cut control)",
+            "same size, Ladies\n+ same cut",
+        ],
+    )
 
 
 if __name__ == "__main__":

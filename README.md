@@ -140,16 +140,17 @@ python dataset_eval/hip_consistency.py   # → 24_hip_consistency_by_brand.png
 ```
 
 <p align="center">
-  <img src="docs/hip_consistency_hm.png" alt="H&M hip variation within the same labelled size at three control levels after subtracting pipeline noise: same size (168 mm), + category (154 mm), + cut (110 mm)" width="640">
+  <img src="docs/hip_consistency_hm.png" alt="H&M Ladies hip variation within the same labelled size, before and after controlling for cut: 154 mm drops to 110 mm" width="640">
 </p>
 
-Reading the chart: each bar is the std of `hip − cell median` for H&M,
-where the cell tightens with each control, **after subtracting the
-empirical pipeline noise** (σ_pipe ≈ 37 mm, measured below) in
-quadrature. So the bars show the residual garment-side variation, not
-inflated by pipeline noise. The drop from 168 → 110 mm is the fraction
-of H&M's apparent extra-vs-peers variation that's explained by mixing
-cut variants under one EU number (~57% of variance, roughly).
+Reading the chart: each bar is the std of `hip − cell median` for H&M
+Ladies jeans, where the cell tightens with the cut control, **after
+subtracting the empirical pipeline noise** (σ_pipe ≈ 37 mm, measured
+below) in quadrature. So the bars show the residual garment-side
+variation, not inflated by pipeline noise. The drop from 154 → 110 mm
+means **about half of H&M's apparent within-size hip variance is just
+the EU size number bundling multiple cut variants** (Regular / Tight /
+Loose / Bootcut / Cropped — `(154² − 110²) / 154² ≈ 49%`).
 
 The remaining ~110 mm is still substantial — at the same brand, size,
 category and cut, two random garments can differ by ~220 mm at the hip,
@@ -157,8 +158,11 @@ which is some mix of real garment-to-garment manufacturing tolerance,
 sub-cut conflation we couldn't filter out, and material wear (this is a
 second-hand dataset).
 
-The same exercise across all six brands with adequate samples is in
+(A full three-level breakdown — size only, +category, +cut — for all
+six brands with adequate samples is in
 [`docs/hip_consistency_controls.png`](docs/hip_consistency_controls.png).
+We feature only the cut step here because ~94% of the dataset is Ladies,
+so the category control mostly just filters down to Ladies anyway.)
 
 ### Pipeline noise estimate
 

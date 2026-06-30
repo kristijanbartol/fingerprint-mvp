@@ -157,10 +157,85 @@ def plot_grouped(summaries, labels, out_path, colors=None):
     print(f"\nSaved: {out_path}")
 
 
+def plot_single_brand_progression(summaries, level_labels, focus_brand,
+                                  out_path):
+    """3 vertical bars for one brand across control levels.
+
+    A horizontal band shows the range of the other qualifying brands at
+    the strictest control level, so the viewer sees the focus brand's
+    last bar dropping into the mid-pack range.
+    """
+    bars = []
+    for s, lvl in zip(summaries, level_labels):
+        row = next((r for r in s if r[0] == focus_brand), None)
+        if row is None:
+            continue
+        _, n, std, lo, hi = row
+        bars.append({"level": lvl, "n": n, "std": std, "lo": lo, "hi": hi})
+    if not bars:
+        print(f"(no data for {focus_brand!r})")
+        return
+
+    others = [r for r in summaries[-1] if r[0] != focus_brand]
+    if others:
+        ref_lo = min(r[2] for r in others)
+        ref_hi = max(r[2] for r in others)
+        ref_n = len(others)
+    else:
+        ref_lo = ref_hi = ref_n = None
+
+    fig, ax = plt.subplots(figsize=(7.2, 5.2))
+    x = np.arange(len(bars))
+    stds = [b["std"] for b in bars]
+    errs_lo = [b["std"] - b["lo"] for b in bars]
+    errs_hi = [b["hi"] - b["std"] for b in bars]
+    colors = ["#cb6f57", "#e8a07c", "#74c476"]
+    ax.bar(x, stds, yerr=[errs_lo, errs_hi], color=colors[:len(bars)],
+           edgecolor="#333", width=0.6, capsize=6, zorder=3)
+    for xi, b in zip(x, bars):
+        ax.text(xi, b["std"] + 6, f"{b['std']:.0f} mm",
+                ha="center", va="bottom", fontsize=12, fontweight="bold",
+                zorder=4)
+
+    if ref_lo is not None:
+        ax.axhspan(ref_lo, ref_hi, color="#9ecae1", alpha=0.3, zorder=1)
+        # Put the label outside the bar area on the right.
+        ax.set_xlim(-0.5, len(bars) - 0.5 + 0.6)
+        ax.annotate(
+            f"mid-pack range\n({ref_n} other brands,\nfully controlled)",
+            xy=(len(bars) - 1 + 0.32, (ref_lo + ref_hi) / 2),
+            xytext=(len(bars) - 0.5 + 0.05, (ref_lo + ref_hi) / 2),
+            ha="left", va="center", fontsize=8.5, color="#08519c",
+            fontstyle="italic",
+            arrowprops=dict(arrowstyle="->", color="#08519c", lw=0.8),
+            zorder=2,
+        )
+
+    short_labels = [
+        "labelled size only",
+        "+ category\n(Ladies/Men)",
+        "+ cut\n(Regular/Tight/…)",
+    ]
+    ax.set_xticks(x)
+    ax.set_xticklabels(short_labels[:len(bars)])
+    ax.set_ylabel("Hip residual std (mm)")
+    ax.set_title(f"{focus_brand}: most of the apparent sizing inconsistency\n"
+                 f"comes from mixing cut variants under each EU size",
+                 fontsize=12)
+    ax.set_ylim(0, max(b["hi"] for b in bars) * 1.1)
+    ax.grid(axis="y", alpha=0.3, zorder=0)
+    ax.set_axisbelow(True)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=140)
+    print(f"\nSaved: {out_path}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", type=Path, default=DEFAULT_CSV)
     ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
+    ap.add_argument("--focus-brand", default="H&M",
+                    help="Brand to feature in the single-brand zoom plot.")
     args = ap.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -180,6 +255,8 @@ def main():
 
     plot_grouped(summaries, labels,
                  args.out_dir / "24_hip_consistency_by_brand.png")
+    plot_single_brand_progression(summaries, labels, args.focus_brand,
+                                  args.out_dir / "25_hip_consistency_focus.png")
 
 
 if __name__ == "__main__":

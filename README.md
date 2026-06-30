@@ -140,14 +140,19 @@ python dataset_eval/hip_consistency.py   # → 24_hip_consistency_by_brand.png
 ```
 
 <p align="center">
-  <img src="docs/hip_consistency_controls.png" alt="Within-brand hip residual std at three control levels: brand+size, +category, +category+cut" width="640">
+  <img src="docs/hip_consistency_hm.png" alt="H&M hip-residual std at three control levels: labelled size only (172 mm), + category (158 mm), + cut (116 mm); the third bar drops into the mid-pack range of the other 5 brands" width="640">
 </p>
 
-When you only control for labelled size, H&M looks roughly 1.7× less
-consistent than the mid-pack. Add `cut` to the control and the gap
-nearly closes — most of the apparent cross-brand inconsistency was
-brands bundling more silhouette variants under each EU number, not
-actual sizing variance.
+Featuring H&M because it shows the largest shrinkage. When you only
+control for labelled size, H&M looks roughly 1.7× less consistent than
+the mid-pack. `category` (Ladies/Men) barely moves things. Adding `cut`
+(Regular / Tight / Loose / Bootcut / …) collapses H&M down into the
+range of the other five brands — meaning most of the apparent
+cross-brand sizing inconsistency wasn't inconsistency. It was H&M
+selling more cut variants under each EU number than its peers.
+
+The full-cohort comparison across all six brands with adequate samples
+is in [`docs/hip_consistency_controls.png`](docs/hip_consistency_controls.png).
 
 ## Known limitations
 

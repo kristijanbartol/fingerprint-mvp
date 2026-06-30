@@ -157,13 +157,17 @@ def plot_grouped(summaries, labels, out_path, colors=None):
     print(f"\nSaved: {out_path}")
 
 
+def _quad_subtract(x, sigma):
+    return float(np.sqrt(max(0.0, x * x - sigma * sigma)))
+
+
 def plot_single_brand_progression(summaries, level_labels, focus_brand,
-                                  out_path):
+                                  out_path, sigma_pipe=0.0):
     """3 vertical bars for one brand across control levels.
 
-    Plot is intentionally minimal: bars + numbers + error bars, no
-    reference-band overlay. The shrinkage 172 → 158 → 116 is the story;
-    the absolute residual std stays large at every level.
+    If sigma_pipe > 0, subtract it from the std (and CI bounds) in
+    quadrature so the bars show the residual *garment-side* variation
+    after empirical pipeline noise has been removed.
     """
     bars = []
     for s, lvl in zip(summaries, level_labels):
@@ -171,12 +175,16 @@ def plot_single_brand_progression(summaries, level_labels, focus_brand,
         if row is None:
             continue
         _, n, std, lo, hi = row
+        if sigma_pipe > 0:
+            std = _quad_subtract(std, sigma_pipe)
+            lo = _quad_subtract(lo, sigma_pipe)
+            hi = _quad_subtract(hi, sigma_pipe)
         bars.append({"level": lvl, "n": n, "std": std, "lo": lo, "hi": hi})
     if not bars:
         print(f"(no data for {focus_brand!r})")
         return
 
-    fig, ax = plt.subplots(figsize=(7.2, 5.4))
+    fig, ax = plt.subplots(figsize=(8.2, 5.4))
     x = np.arange(len(bars))
     stds = [b["std"] for b in bars]
     errs_lo = [b["std"] - b["lo"] for b in bars]
@@ -196,12 +204,18 @@ def plot_single_brand_progression(summaries, level_labels, focus_brand,
     ]
     ax.set_xticks(x)
     ax.set_xticklabels(short_labels[:len(bars)], fontsize=10)
-    ax.set_ylabel("Hip variation within a label\n"
-                  "std of (hip − cell median), pooled across sizes  (mm)",
-                  fontsize=10)
+    if sigma_pipe > 0:
+        ax.set_ylabel("Garment-side hip std (mm)", fontsize=11)
+        subtitle = (
+            f"pipeline noise (σ_pipe ≈ {sigma_pipe:.0f} mm) subtracted in "
+            f"quadrature; error bars are 95% bootstrap CI"
+        )
+    else:
+        ax.set_ylabel("Hip std within a label (mm)", fontsize=11)
+        subtitle = "error bars are 95% bootstrap CI"
     ax.set_title(
-        f"{focus_brand}: how much hip variation remains within a label\n"
-        f"as we add more controls   (error bars: 95% bootstrap CI)",
+        f"{focus_brand}: hip variation within a label, by control level\n"
+        f"{subtitle}",
         fontsize=11,
     )
     ax.set_ylim(0, max(b["hi"] for b in bars) * 1.12)
@@ -218,6 +232,10 @@ def main():
     ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
     ap.add_argument("--focus-brand", default="H&M",
                     help="Brand to feature in the single-brand zoom plot.")
+    ap.add_argument("--sigma-pipe", type=float, default=37.0,
+                    help="Per-image pipeline-noise std (mm) to subtract in "
+                         "quadrature. Empirical estimate from the front-vs-back "
+                         "check is ~37 mm. Pass 0 to plot raw observed stds.")
     args = ap.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -238,7 +256,8 @@ def main():
     plot_grouped(summaries, labels,
                  args.out_dir / "24_hip_consistency_by_brand.png")
     plot_single_brand_progression(summaries, labels, args.focus_brand,
-                                  args.out_dir / "25_hip_consistency_focus.png")
+                                  args.out_dir / "25_hip_consistency_focus.png",
+                                  sigma_pipe=args.sigma_pipe)
 
 
 if __name__ == "__main__":

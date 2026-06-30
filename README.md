@@ -140,24 +140,52 @@ python dataset_eval/hip_consistency.py   # → 24_hip_consistency_by_brand.png
 ```
 
 <p align="center">
-  <img src="docs/hip_consistency_hm.png" alt="H&M hip variation within the same labelled size at three control levels: same size only (172 mm), + same category (158 mm), + same cut (116 mm)" width="640">
+  <img src="docs/hip_consistency_hm.png" alt="H&M hip variation within the same labelled size at three control levels after subtracting pipeline noise: same size (168 mm), + category (154 mm), + cut (110 mm)" width="640">
 </p>
 
 Reading the chart: each bar is the std of `hip − cell median` for H&M,
-where the cell tightens with each control. So the leftmost bar pools
-within-size variation across sizes; the rightmost bar pools within
-(size + category + cut). The drop from 172 → 116 mm is the **fraction of
-H&M's apparent extra variation that's explained by mixing cut variants
-under one EU number** (~33% of the var explained, roughly). The
-remaining ~116 mm is still substantial — at the same brand, size,
-category and cut, two random garments can differ by ~230 mm at the hip,
-which is some mix of real garment-to-garment variation, our measurement
-noise, and material wear (this is a second-hand dataset).
+where the cell tightens with each control, **after subtracting the
+empirical pipeline noise** (σ_pipe ≈ 37 mm, measured below) in
+quadrature. So the bars show the residual garment-side variation, not
+inflated by pipeline noise. The drop from 168 → 110 mm is the fraction
+of H&M's apparent extra-vs-peers variation that's explained by mixing
+cut variants under one EU number (~57% of variance, roughly).
 
-Featuring H&M because it shows the largest shrinkage. The same exercise
-across all six brands with adequate samples — and the smaller shrinkage
-the others show — is in
+The remaining ~110 mm is still substantial — at the same brand, size,
+category and cut, two random garments can differ by ~220 mm at the hip,
+which is some mix of real garment-to-garment manufacturing tolerance,
+sub-cut conflation we couldn't filter out, and material wear (this is a
+second-hand dataset).
+
+The same exercise across all six brands with adequate samples is in
 [`docs/hip_consistency_controls.png`](docs/hip_consistency_controls.png).
+
+### Pipeline noise estimate
+
+To get the σ_pipe figure used above, every garment in the survey was
+re-measured on its `back_<ts>.jpg`. Since both views show the same
+physical garment, any difference between `hip_front` and `hip_back` is
+measurement-side, not garment-side:
+
+<p align="center">
+  <img src="docs/pipeline_noise_front_back.png" alt="Left: scatter of hip_back vs hip_front on 236 paired views hugging the y=x diagonal. Right: histogram of front-back differences, mean -3.4 mm, std 53 mm, implying single-image pipeline noise ≈ 37 mm" width="780">
+</p>
+
+236/238 pairs gave a usable hip from both views. Mean front-back is
+−3.4 mm so there is **no systematic bias**. Std of the differences is
+53 mm, implying
+
+```
+σ_pipeline ≈ std(hip_front − hip_back) / √2 ≈ 37 mm   per single image
+```
+
+which is the value subtracted in the H&M chart above.
+
+```bash
+export CIRCULAR_FASHION_ROOT=/path/to/circular_fashion_v2
+python dataset_eval/front_back_check.py   # → dataset_eval/front_back_pairs.csv
+python dataset_eval/front_back_plot.py    # → 26_front_back_noise.png
+```
 
 ## Known limitations
 

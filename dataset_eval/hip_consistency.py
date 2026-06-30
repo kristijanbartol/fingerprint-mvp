@@ -161,9 +161,9 @@ def plot_single_brand_progression(summaries, level_labels, focus_brand,
                                   out_path):
     """3 vertical bars for one brand across control levels.
 
-    A horizontal band shows the range of the other qualifying brands at
-    the strictest control level, so the viewer sees the focus brand's
-    last bar dropping into the mid-pack range.
+    Plot is intentionally minimal: bars + numbers + error bars, no
+    reference-band overlay. The shrinkage 172 → 158 → 116 is the story;
+    the absolute residual std stays large at every level.
     """
     bars = []
     for s, lvl in zip(summaries, level_labels):
@@ -176,15 +176,7 @@ def plot_single_brand_progression(summaries, level_labels, focus_brand,
         print(f"(no data for {focus_brand!r})")
         return
 
-    others = [r for r in summaries[-1] if r[0] != focus_brand]
-    if others:
-        ref_lo = min(r[2] for r in others)
-        ref_hi = max(r[2] for r in others)
-        ref_n = len(others)
-    else:
-        ref_lo = ref_hi = ref_n = None
-
-    fig, ax = plt.subplots(figsize=(7.2, 5.2))
+    fig, ax = plt.subplots(figsize=(7.2, 5.4))
     x = np.arange(len(bars))
     stds = [b["std"] for b in bars]
     errs_lo = [b["std"] - b["lo"] for b in bars]
@@ -194,35 +186,25 @@ def plot_single_brand_progression(summaries, level_labels, focus_brand,
            edgecolor="#333", width=0.6, capsize=6, zorder=3)
     for xi, b in zip(x, bars):
         ax.text(xi, b["std"] + 6, f"{b['std']:.0f} mm",
-                ha="center", va="bottom", fontsize=12, fontweight="bold",
+                ha="center", va="bottom", fontsize=13, fontweight="bold",
                 zorder=4)
 
-    if ref_lo is not None:
-        ax.axhspan(ref_lo, ref_hi, color="#9ecae1", alpha=0.3, zorder=1)
-        # Put the label outside the bar area on the right.
-        ax.set_xlim(-0.5, len(bars) - 0.5 + 0.6)
-        ax.annotate(
-            f"mid-pack range\n({ref_n} other brands,\nfully controlled)",
-            xy=(len(bars) - 1 + 0.32, (ref_lo + ref_hi) / 2),
-            xytext=(len(bars) - 0.5 + 0.05, (ref_lo + ref_hi) / 2),
-            ha="left", va="center", fontsize=8.5, color="#08519c",
-            fontstyle="italic",
-            arrowprops=dict(arrowstyle="->", color="#08519c", lw=0.8),
-            zorder=2,
-        )
-
     short_labels = [
-        "labelled size only",
-        "+ category\n(Ladies/Men)",
-        "+ cut\n(Regular/Tight/…)",
+        "same size\nonly",
+        "same size\n+ same category",
+        "same size\n+ same cut",
     ]
     ax.set_xticks(x)
-    ax.set_xticklabels(short_labels[:len(bars)])
-    ax.set_ylabel("Hip residual std (mm)")
-    ax.set_title(f"{focus_brand}: most of the apparent sizing inconsistency\n"
-                 f"comes from mixing cut variants under each EU size",
-                 fontsize=12)
-    ax.set_ylim(0, max(b["hi"] for b in bars) * 1.1)
+    ax.set_xticklabels(short_labels[:len(bars)], fontsize=10)
+    ax.set_ylabel("Hip variation within a label\n"
+                  "std of (hip − cell median), pooled across sizes  (mm)",
+                  fontsize=10)
+    ax.set_title(
+        f"{focus_brand}: how much hip variation remains within a label\n"
+        f"as we add more controls   (error bars: 95% bootstrap CI)",
+        fontsize=11,
+    )
+    ax.set_ylim(0, max(b["hi"] for b in bars) * 1.12)
     ax.grid(axis="y", alpha=0.3, zorder=0)
     ax.set_axisbelow(True)
     fig.tight_layout()

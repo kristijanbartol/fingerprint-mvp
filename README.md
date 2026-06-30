@@ -140,19 +140,24 @@ python dataset_eval/hip_consistency.py   # → 24_hip_consistency_by_brand.png
 ```
 
 <p align="center">
-  <img src="docs/hip_consistency_hm.png" alt="H&M hip-residual std at three control levels: labelled size only (172 mm), + category (158 mm), + cut (116 mm); the third bar drops into the mid-pack range of the other 5 brands" width="640">
+  <img src="docs/hip_consistency_hm.png" alt="H&M hip variation within the same labelled size at three control levels: same size only (172 mm), + same category (158 mm), + same cut (116 mm)" width="640">
 </p>
 
-Featuring H&M because it shows the largest shrinkage. When you only
-control for labelled size, H&M looks roughly 1.7× less consistent than
-the mid-pack. `category` (Ladies/Men) barely moves things. Adding `cut`
-(Regular / Tight / Loose / Bootcut / …) collapses H&M down into the
-range of the other five brands — meaning most of the apparent
-cross-brand sizing inconsistency wasn't inconsistency. It was H&M
-selling more cut variants under each EU number than its peers.
+Reading the chart: each bar is the std of `hip − cell median` for H&M,
+where the cell tightens with each control. So the leftmost bar pools
+within-size variation across sizes; the rightmost bar pools within
+(size + category + cut). The drop from 172 → 116 mm is the **fraction of
+H&M's apparent extra variation that's explained by mixing cut variants
+under one EU number** (~33% of the var explained, roughly). The
+remaining ~116 mm is still substantial — at the same brand, size,
+category and cut, two random garments can differ by ~230 mm at the hip,
+which is some mix of real garment-to-garment variation, our measurement
+noise, and material wear (this is a second-hand dataset).
 
-The full-cohort comparison across all six brands with adequate samples
-is in [`docs/hip_consistency_controls.png`](docs/hip_consistency_controls.png).
+Featuring H&M because it shows the largest shrinkage. The same exercise
+across all six brands with adequate samples — and the smaller shrinkage
+the others show — is in
+[`docs/hip_consistency_controls.png`](docs/hip_consistency_controls.png).
 
 ## Known limitations
 

@@ -262,7 +262,7 @@ def build_comparison_image(home_display_path, top_rows, out_path):
     home_img = Image.open(home_display_path).convert("RGB")
     axes[0].imshow(home_img)
     axes[0].axis("off")
-    axes[0].set_title("your home photo", fontsize=10)
+    axes[0].set_title("home photo", fontsize=10)
 
     for i, (dist, row) in enumerate(top_rows, 1):
         img = Image.open(row["front"]).convert("RGB")

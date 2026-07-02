@@ -601,7 +601,22 @@ def measure_jeans(image_path, px_per_mm=PX_PER_MM, debug_dir=None, click_point=N
         if a4_corners is None:
             raise RuntimeError("A4 paper not detected. Check background contrast and protocol.")
         scale_unc = scale_uncertainty(a4_corners)
-        jeans = isolate_jeans(img, fg, a4_mask, click_point=click_point)
+        if use_rembg:
+            # rembg + A4: rembg gives the garment mask (much more robust than
+            # GrabCut on low-contrast home photos), A4 supplies the scale +
+            # perspective. rembg may include the paper as foreground, so
+            # subtract a dilated A4 mask and keep the largest CC.
+            rembg_mask = _segment_with_rembg(img)
+            a4_dilated = cv2.dilate(a4_mask, np.ones((15, 15), np.uint8))
+            gm = (rembg_mask > 0) & (a4_dilated == 0)
+            gm = gm.astype(np.uint8) * 255
+            num, lab, stats, _ = cv2.connectedComponentsWithStats(gm, connectivity=8)
+            if num < 2:
+                raise RuntimeError("rembg produced no garment blob after A4 removal.")
+            idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+            jeans = (lab == idx).astype(np.uint8) * 255
+        else:
+            jeans = isolate_jeans(img, fg, a4_mask, click_point=click_point)
     else:
         a4_corners = None
         if use_rembg:
@@ -783,11 +798,11 @@ def main():
                    help="Skip A4 detection + homography. Use the given px/mm of the raw image directly. "
                         "For the Circular Fashion dataset (10cm tiles, ~66 px) use ~0.66.")
     p.add_argument("--rembg", action="store_true",
-                   help="Use the rembg U^2-Net segmenter for the foreground mask "
-                        "(requires --manual-px-per-mm; replaces the tile-background heuristic).")
+                   help="Use the rembg U^2-Net segmenter for the foreground mask. "
+                        "Works with either --manual-px-per-mm (tile-grid/dataset "
+                        "mode) or the default A4-detection mode (home photos "
+                        "with an A4 for scale).")
     args = p.parse_args()
-    if args.rembg and args.manual_px_per_mm is None:
-        p.error("--rembg currently only runs alongside --manual-px-per-mm")
 
     click_point = args.click
     if click_point is None and not args.no_click and not args.rembg:

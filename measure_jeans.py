@@ -710,6 +710,10 @@ def save_debug(debug_dir, img_orig, fg_mask, a4_mask, jeans_mask,
     cv2.imwrite(str(debug_dir / "03_a4_mask.png"), a4_mask)
     cv2.imwrite(str(debug_dir / "04_jeans_mask.png"), jeans_mask)
     cv2.imwrite(str(debug_dir / "05_jeans_rotated.png"), mask_rot)
+    # Save the clean rotated color image (no overlays) so downstream tools
+    # (e.g. dataset_eval/home2market.py) can annotate freshly with their
+    # own styling.
+    cv2.imwrite(str(debug_dir / "05b_rotated_color.jpg"), img_rot)
 
     out = img_rot.copy()
     edges = cv2.Canny(mask_rot, 50, 150)

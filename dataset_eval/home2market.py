@@ -23,6 +23,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -34,21 +35,25 @@ DEFAULT_CSV = Path(__file__).resolve().parent / "full_survey.csv"
 MEASUREMENTS = ["waist", "hip", "thigh", "calf", "ankle"]
 
 
-def measure_home_photo(image_path, manual_px_per_mm=None):
-    """Return {"waist": mm, ...} for the home photo (or raise)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        json_out = Path(tmp) / "r.json"
-        cmd = [sys.executable, str(REPO_ROOT / "measure_jeans.py"),
-               str(image_path), "--no-click", "--rembg",
-               "--json", str(json_out)]
-        if manual_px_per_mm is not None:
-            cmd += ["--manual-px-per-mm", str(manual_px_per_mm)]
-        r = subprocess.run(cmd, capture_output=True, text=True)
-        if r.returncode != 0:
-            raise RuntimeError(
-                f"measure_jeans failed on the home photo:\n{r.stderr.strip()}"
-            )
-        d = json.loads(json_out.read_text())
+def measure_home_photo(image_path, debug_dir, manual_px_per_mm=None):
+    """Run the measurement pipeline on `image_path`, persist debug output
+    under `debug_dir`, and return (measurements_dict, result_json_path).
+    """
+    debug_dir = Path(debug_dir)
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    json_out = debug_dir / "r.json"
+    cmd = [sys.executable, str(REPO_ROOT / "measure_jeans.py"),
+           str(image_path), "--no-click", "--rembg",
+           "--debug-dir", str(debug_dir),
+           "--json", str(json_out)]
+    if manual_px_per_mm is not None:
+        cmd += ["--manual-px-per-mm", str(manual_px_per_mm)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"measure_jeans failed on the home photo:\n{r.stderr.strip()}"
+        )
+    d = json.loads(json_out.read_text())
     ms = d.get("measurements", {})
     out = {}
     for m in MEASUREMENTS:
@@ -56,7 +61,102 @@ def measure_home_photo(image_path, manual_px_per_mm=None):
         if v is None:
             raise RuntimeError(f"home photo missing {m} measurement")
         out[m] = float(v)
-    return out
+    return out, json_out
+
+
+def _find_a4_in_rotated(img_bgr):
+    """Bounding box of the A4 sheet in the rotated color image (bright,
+    low-saturation, A4-ish aspect). Returns (x, y, w, h) or None.
+    """
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    cand = ((hsv[..., 1] < 40) & (hsv[..., 2] > 200)).astype(np.uint8) * 255
+    cand = cv2.morphologyEx(cand, cv2.MORPH_CLOSE, np.ones((21, 21), np.uint8))
+    cand = cv2.morphologyEx(cand, cv2.MORPH_OPEN, np.ones((15, 15), np.uint8))
+    num, _, stats, _ = cv2.connectedComponentsWithStats(cand)
+    if num < 2:
+        return None
+    best = None
+    best_score = 0.0
+    for i in range(1, num):
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        w = int(stats[i, cv2.CC_STAT_WIDTH])
+        h = int(stats[i, cv2.CC_STAT_HEIGHT])
+        if area < 5000:
+            continue
+        aspect = max(w, h) / max(1, min(w, h))
+        aspect_score = max(0.0, 1.0 - abs(aspect - 297.0 / 210.0) / 0.4)
+        score = area * aspect_score
+        if score > best_score:
+            best_score = score
+            best = (int(stats[i, cv2.CC_STAT_LEFT]),
+                    int(stats[i, cv2.CC_STAT_TOP]), w, h)
+    return best
+
+
+def render_home_panel(debug_dir, result_json_path, out_path):
+    """Compose the annotated home panel: rotated color image + A4 rectangle
+    (labelled `A4 · 210 × 297 mm`) + measurement lines with big labels."""
+    debug_dir = Path(debug_dir)
+    src = debug_dir / "05b_rotated_color.jpg"
+    img = cv2.imread(str(src))
+    if img is None:
+        raise RuntimeError(f"missing rotated color image: {src}")
+    h, w = img.shape[:2]
+    d = json.loads(Path(result_json_path).read_text())
+    ms = d.get("measurements", {})
+
+    # Measurement lines. Distinct BGR colours per landmark so lines and
+    # labels are visually tied together.
+    line_colors = {
+        "waist": (60, 120, 220),   # red-orange
+        "hip":   (60, 200, 240),   # yellow-gold
+        "thigh": (80, 200, 100),   # green
+        "calf":  (220, 140, 60),   # blue
+        "ankle": (200, 60, 200),   # magenta
+    }
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    # The composited image scales the home panel down aggressively, so
+    # scale text + line thickness to the source image so overlays survive
+    # the downsample. Reference ~1500 px wide source → scale ~2.5.
+    label_scale = max(1.5, min(3.5, w / 600.0))
+    label_thick = max(3, int(round(w / 400.0)))
+    line_thick = max(5, int(round(w / 250.0)))
+
+    for name in MEASUREMENTS:
+        m = ms.get(name)
+        if m is None:
+            continue
+        y = int(m["y_px"])
+        color = line_colors.get(name, (0, 255, 255))
+        cv2.line(img, (0, y), (w, y), color, line_thick)
+        label = f"{name.upper()}  {m['circumference_mm']:.0f} mm"
+        (tw, th), _ = cv2.getTextSize(label, font, label_scale, label_thick)
+        # Right-align: label sits at the right end of the line, above it.
+        lx = max(6, w - tw - 16)
+        ly = y - 12 if y > th + 30 else y + th + 20
+        cv2.putText(img, label, (lx, ly), font, label_scale, (0, 0, 0),
+                    label_thick + 6)
+        cv2.putText(img, label, (lx, ly), font, label_scale, color,
+                    label_thick)
+
+    a4_box = _find_a4_in_rotated(img)
+    if a4_box is not None:
+        x, y, w_a4, h_a4 = a4_box
+        a4_color = (100, 255, 100)  # bright green
+        cv2.rectangle(img, (x, y), (x + w_a4, y + h_a4), a4_color, line_thick)
+        label = "A4  210 x 297 mm"
+        a4_scale = max(1.2, label_scale * 0.75)
+        (tw, th), _ = cv2.getTextSize(label, font, a4_scale, label_thick)
+        # Prefer placing the label below the A4; fall back to above.
+        lx = max(6, min(w - tw - 6, x))
+        ly = (y + h_a4 + th + 12) if y + h_a4 + th + 20 < h else max(th + 6, y - 12)
+        cv2.putText(img, label, (lx, ly), font, a4_scale, (0, 0, 0),
+                    label_thick + 6)
+        cv2.putText(img, label, (lx, ly), font, a4_scale, a4_color,
+                    label_thick)
+
+    cv2.imwrite(str(out_path), img)
+    return out_path
 
 
 def load_dataset(csv_path, dataset_root):
@@ -99,21 +199,20 @@ def rank_matches(query_vec, dataset_rows):
     return [(float(dists[i]), dataset_rows[i]) for i in order]
 
 
-def build_comparison_image(home_path, home_vec, top_rows, out_path):
-    """Save a 1 x (K+1) grid: home photo | top-K dataset photos, with captions."""
+def build_comparison_image(home_display_path, top_rows, out_path):
+    """Save a 1 x (K+1) grid: annotated home panel | top-K dataset photos.
+
+    The home panel already carries A4 highlight + labelled measurement
+    lines, so no extra caption is needed on it.
+    """
     k = len(top_rows)
-    fig, axes = plt.subplots(1, k + 1, figsize=(3.2 * (k + 1), 5.8))
+    fig, axes = plt.subplots(1, k + 1, figsize=(3.4 * (k + 1), 5.8))
     if k == 0:
         axes = [axes]
-    home_img = Image.open(home_path).convert("RGB")
+    home_img = Image.open(home_display_path).convert("RGB")
     axes[0].imshow(home_img)
     axes[0].axis("off")
-    home_caption = (
-        "your home photo\n"
-        f"W {home_vec[0]:.0f}  H {home_vec[1]:.0f}\n"
-        f"T {home_vec[2]:.0f}  C {home_vec[3]:.0f}  A {home_vec[4]:.0f}  (mm)"
-    )
-    axes[0].set_title(home_caption, fontsize=9)
+    axes[0].set_title("your home photo", fontsize=10)
 
     for i, (dist, row) in enumerate(top_rows, 1):
         img = Image.open(row["front"]).convert("RGB")
@@ -151,12 +250,18 @@ def main():
         ap.error("--dataset-root or CIRCULAR_FASHION_ROOT env var is required")
 
     print(f"Measuring {args.image} ...")
-    home_ms = measure_home_photo(args.image, manual_px_per_mm=args.manual_px_per_mm)
+    debug_dir = args.out.with_suffix("") / "debug"
+    home_ms, result_json = measure_home_photo(
+        args.image, debug_dir, manual_px_per_mm=args.manual_px_per_mm,
+    )
     query = np.array([home_ms[m] for m in MEASUREMENTS])
     print("Home measurements (mm):")
     for m, v in home_ms.items():
         print(f"  {m:<6} {v:7.1f}")
     print()
+
+    home_panel_path = debug_dir / "07_home_panel.jpg"
+    render_home_panel(debug_dir, result_json, home_panel_path)
 
     print(f"Loading dataset from {args.csv} ...")
     rows = load_dataset(args.csv, args.dataset_root)
@@ -178,7 +283,7 @@ def main():
               f"{r['category']:<7} {(r['cut'] or '')[:20]:<20} "
               f"{v[0]:>5.0f} {v[1]:>5.0f} {v[2]:>5.0f} {v[3]:>5.0f} {v[4]:>5.0f}")
 
-    build_comparison_image(args.image, query, top, args.out)
+    build_comparison_image(home_panel_path, top, args.out)
 
 
 if __name__ == "__main__":

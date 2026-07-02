@@ -123,6 +123,34 @@ python analyze_dataset.py                # 20+ summary plots in dataset_analysis
 python jeans_by_brand.py                 # named-brand histogram
 ```
 
+## Home garment → dataset marketplace matcher
+
+The dataset can be treated as a *marketplace of second-hand jeans*.
+Given a home photo of your own jeans (with an A4 sheet for scale), we
+run the same measurement pipeline on it, then find the dataset garments
+whose 5-circumference "fingerprint" is closest to yours in
+per-measurement z-score space.
+
+<p align="center">
+  <img src="docs/home2market_demo.jpg" alt="A home photo of beige skinny jeans on the left; three closest dataset matches to the right, each labelled with brand, EU size, category, cut, its own 5-circumference vector, and normalized distance to the home garment" width="900">
+</p>
+
+The closest match on the home garment above is a Flash EU 38 Ladies
+Regular in the dataset — matching to within 12 mm at the waist, 21 mm
+at the hip, 10 mm at the thigh and 9 mm at the calf (only ankle is off,
+because the home garment is a tapered skinny). The colour match is a
+happy accident; the matcher doesn't see colour.
+
+```bash
+export CIRCULAR_FASHION_ROOT=/path/to/circular_fashion_v2
+python dataset_eval/full_survey.py            # → full_survey.csv (once)
+python dataset_eval/home2market.py your_jeans.jpg --k 3 --out result.jpg
+```
+
+`your_jeans.jpg` should be a top-down photo of jeans laid flat with an
+A4 sheet visible for scale (any orientation). The matcher does the
+segmentation, A4 detection, and measurement automatically.
+
 ## Hip-consistency analysis (242 jeans)
 
 Survey the named-brand tile-grid jeans subset, measure hip-only at

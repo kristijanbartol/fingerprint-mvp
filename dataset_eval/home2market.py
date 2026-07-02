@@ -94,16 +94,48 @@ def _find_a4_in_rotated(img_bgr):
 
 
 def render_home_panel(debug_dir, result_json_path, out_path):
-    """Compose the annotated home panel: rotated color image + A4 rectangle
-    (labelled `A4 · 210 × 297 mm`) + measurement lines with big labels."""
+    """Compose the annotated home panel on the *rectified* (un-rotated) image.
+
+    The measurement rows come from the rotated frame, so we invert the
+    rotation transform (and the 180° flip if applied) to draw the lines
+    on the rectified frame. Labels stay horizontal for readability. A4 is
+    detected as the largest bright-white blob in the rectified image.
+    """
     debug_dir = Path(debug_dir)
-    src = debug_dir / "05b_rotated_color.jpg"
-    img = cv2.imread(str(src))
+    rect_src = debug_dir / "05a_rectified_color.jpg"
+    meta_path = debug_dir / "transform_meta.json"
+    if rect_src.exists() and meta_path.exists():
+        img = cv2.imread(str(rect_src))
+        meta = json.loads(meta_path.read_text())
+        rot_M = np.array(meta["rot_M"], dtype=np.float64)
+        flipped = bool(meta["flipped_180"])
+        h_rot, w_rot = meta["img_rot_shape"]
+        use_rectified = True
+    else:
+        # Fall back to the rotated canvas if the rectified extras aren't there.
+        img = cv2.imread(str(debug_dir / "05b_rotated_color.jpg"))
+        rot_M = np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float64)
+        flipped = False
+        h_rot, w_rot = img.shape[:2] if img is not None else (0, 0)
+        use_rectified = False
     if img is None:
-        raise RuntimeError(f"missing rotated color image: {src}")
+        raise RuntimeError("no home canvas found")
     h, w = img.shape[:2]
     d = json.loads(Path(result_json_path).read_text())
     ms = d.get("measurements", {})
+
+    # Inverse of the 2x3 affine rot_M: given a point in the rotated frame,
+    # return the corresponding point in the rectified frame.
+    A = rot_M[:2, :2]
+    t = rot_M[:2, 2]
+    try:
+        A_inv = np.linalg.inv(A)
+    except np.linalg.LinAlgError:
+        A_inv = np.eye(2)
+
+    def rot_to_rect(x_rot, y_rot):
+        p = A_inv @ (np.array([x_rot, y_rot]) - t)
+        return int(round(p[0])), int(round(p[1]))
 
     # Measurement lines. Distinct BGR colours per landmark so lines and
     # labels are visually tied together.
@@ -126,14 +158,35 @@ def render_home_panel(debug_dir, result_json_path, out_path):
         m = ms.get(name)
         if m is None:
             continue
-        y = int(m["y_px"])
+        y_final = int(m["y_px"])
+        # Undo the 180° flip (if ensure_upright applied one) to get y in
+        # the pre-flip rotated frame.
+        y_rot = (h_rot - 1 - y_final) if flipped else y_final
         color = line_colors.get(name, (0, 255, 255))
-        cv2.line(img, (0, y), (w, y), color, line_thick)
+
+        if use_rectified:
+            # Line in the rotated frame spans full width at y_rot; map both
+            # endpoints back to the rectified frame — the resulting line
+            # will follow the garment axis (typically slanted along the leg
+            # direction).
+            p1 = rot_to_rect(0, y_rot)
+            p2 = rot_to_rect(w_rot - 1, y_rot)
+            cv2.line(img, p1, p2, color, line_thick)
+            # Anchor the horizontal label near the higher-y endpoint (so
+            # it doesn't overlap adjacent measurement labels).
+            anchor = p1 if p1[1] <= p2[1] else p2
+            label_x_hint = anchor[0]
+            label_y = anchor[1]
+        else:
+            cv2.line(img, (0, y_rot), (w, y_rot), color, line_thick)
+            label_x_hint = w
+            label_y = y_rot
+
         label = f"{name.upper()}  {m['circumference_mm']:.0f} mm"
         (tw, th), _ = cv2.getTextSize(label, font, label_scale, label_thick)
-        # Right-align: label sits at the right end of the line, above it.
-        lx = max(6, w - tw - 16)
-        ly = y - 12 if y > th + 30 else y + th + 20
+        # Prefer placing the label to the right of the anchor; clip to img.
+        lx = max(6, min(w - tw - 6, label_x_hint - tw - 20))
+        ly = max(th + 8, min(h - 8, label_y - 12))
         cv2.putText(img, label, (lx, ly), font, label_scale, (0, 0, 0),
                     label_thick + 6)
         cv2.putText(img, label, (lx, ly), font, label_scale, color,

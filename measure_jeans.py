@@ -332,9 +332,15 @@ def rectify(img_bgr, masks, a4_corners, px_per_mm=PX_PER_MM):
 
 
 def rotate_to_vertical(img, mask):
+    """Rotate img+mask so the mask's principal axis is vertical.
+
+    Returns (img_rotated, mask_rotated, rot_deg, M) — the 2×3 affine matrix
+    M is exposed so downstream tools can invert-transform coordinates from
+    the rotated frame back to the input frame.
+    """
     ys, xs = np.where(mask > 0)
     if len(xs) < 50:
-        return img, mask, 0.0
+        return img, mask, 0.0, np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float32)
     pts = np.column_stack([xs.astype(np.float64), ys.astype(np.float64)])
     mean = pts.mean(axis=0)
     cov = np.cov((pts - mean).T)
@@ -359,7 +365,7 @@ def rotate_to_vertical(img, mask):
     out_h = int(np.ceil(maxxy[1] - minxy[1]))
     img_r = cv2.warpAffine(img, M, (out_w, out_h))
     mask_r = cv2.warpAffine(mask, M, (out_w, out_h), flags=cv2.INTER_NEAREST)
-    return img_r, mask_r, rot_deg
+    return img_r, mask_r, rot_deg, M
 
 
 # ---------------------------------------------------------------------------
@@ -642,7 +648,7 @@ def measure_jeans(image_path, px_per_mm=PX_PER_MM, debug_dir=None, click_point=N
         effective_px_per_mm = manual_px_per_mm
 
     if manual_px_per_mm is None:
-        img_rot, mask_rot, _ = rotate_to_vertical(img_rect, jeans_rect)
+        img_rot, mask_rot, _, rot_M = rotate_to_vertical(img_rect, jeans_rect)
     else:
         # Dataset prior: pants are landscape with waistband to the right.
         # A 90° CW rotation makes the waistband sit at the top. This avoids
@@ -650,6 +656,11 @@ def measure_jeans(image_path, px_per_mm=PX_PER_MM, debug_dir=None, click_point=N
         # the leg-spread diagonal instead of the body axis).
         img_rot = cv2.rotate(img_rect, cv2.ROTATE_90_CLOCKWISE)
         mask_rot = cv2.rotate(jeans_rect, cv2.ROTATE_90_CLOCKWISE)
+        # Equivalent affine for a 90° CW rotation of a HxW image:
+        # (x, y) -> (H - 1 - y, x).
+        h_rect = img_rect.shape[0]
+        rot_M = np.array([[0.0, -1.0, float(h_rect - 1)],
+                          [1.0,  0.0, 0.0]], dtype=np.float32)
     img_rot, mask_rot, flipped = ensure_upright(img_rot, mask_rot)
 
     y_top, y_bottom = vertical_extent(mask_rot)
@@ -681,7 +692,9 @@ def measure_jeans(image_path, px_per_mm=PX_PER_MM, debug_dir=None, click_point=N
         )
 
     if debug_dir is not None:
-        save_debug(debug_dir, img, fg, a4_mask, jeans, img_rot, mask_rot, results, y_top, y_crotch, y_bottom)
+        save_debug(debug_dir, img, fg, a4_mask, jeans, img_rot, mask_rot,
+                   results, y_top, y_crotch, y_bottom,
+                   img_rect=img_rect, rot_M=rot_M, flipped=flipped)
 
     return {
         "image": str(image_path),
@@ -701,7 +714,8 @@ def measure_jeans(image_path, px_per_mm=PX_PER_MM, debug_dir=None, click_point=N
 # ---------------------------------------------------------------------------
 
 def save_debug(debug_dir, img_orig, fg_mask, a4_mask, jeans_mask,
-               img_rot, mask_rot, results, y_top, y_crotch, y_bottom):
+               img_rot, mask_rot, results, y_top, y_crotch, y_bottom,
+               img_rect=None, rot_M=None, flipped=False):
     debug_dir = Path(debug_dir)
     debug_dir.mkdir(parents=True, exist_ok=True)
 
@@ -710,9 +724,21 @@ def save_debug(debug_dir, img_orig, fg_mask, a4_mask, jeans_mask,
     cv2.imwrite(str(debug_dir / "03_a4_mask.png"), a4_mask)
     cv2.imwrite(str(debug_dir / "04_jeans_mask.png"), jeans_mask)
     cv2.imwrite(str(debug_dir / "05_jeans_rotated.png"), mask_rot)
-    # Save the clean rotated color image (no overlays) so downstream tools
-    # (e.g. dataset_eval/home2market.py) can annotate freshly with their
-    # own styling.
+    # Also save the clean rectified image (pre-rotation) plus the transform
+    # metadata so downstream tools can display the un-rotated top-down view
+    # and inverse-transform coordinates from the rotated frame back to it.
+    if img_rect is not None:
+        cv2.imwrite(str(debug_dir / "05a_rectified_color.jpg"), img_rect)
+        meta = {
+            "rot_M": (rot_M.tolist() if rot_M is not None
+                      else [[1, 0, 0], [0, 1, 0]]),
+            "flipped_180": bool(flipped),
+            "img_rot_shape": [int(img_rot.shape[0]), int(img_rot.shape[1])],
+            "img_rect_shape": [int(img_rect.shape[0]), int(img_rect.shape[1])],
+        }
+        (debug_dir / "transform_meta.json").write_text(json.dumps(meta, indent=2))
+    # Rotated color image (no overlays) — kept for backwards compat with
+    # tools that expected it as the display canvas.
     cv2.imwrite(str(debug_dir / "05b_rotated_color.jpg"), img_rot)
 
     out = img_rot.copy()

@@ -165,28 +165,25 @@ def render_home_panel(debug_dir, result_json_path, out_path):
         color = line_colors.get(name, (0, 255, 255))
 
         if use_rectified:
-            # Line in the rotated frame spans full width at y_rot; map both
-            # endpoints back to the rectified frame — the resulting line
-            # will follow the garment axis (typically slanted along the leg
-            # direction).
-            p1 = rot_to_rect(0, y_rot)
-            p2 = rot_to_rect(w_rot - 1, y_rot)
-            cv2.line(img, p1, p2, color, line_thick)
-            # Anchor the horizontal label near the higher-y endpoint (so
-            # it doesn't overlap adjacent measurement labels).
-            anchor = p1 if p1[1] <= p2[1] else p2
-            label_x_hint = anchor[0]
-            label_y = anchor[1]
+            # The measurement line in the rotated frame spans the full row
+            # y_rot. In the rectified frame it becomes slanted (perpendicular
+            # to the tilted garment axis). For the demo we want everything
+            # straight, so map the *centre* of that line to the rectified
+            # frame and draw a horizontal line at that y across the image.
+            _, y_line = rot_to_rect(w_rot / 2.0, y_rot)
+            y_line = int(max(0, min(h - 1, y_line)))
+            cv2.line(img, (0, y_line), (w, y_line), color, line_thick)
         else:
-            cv2.line(img, (0, y_rot), (w, y_rot), color, line_thick)
-            label_x_hint = w
-            label_y = y_rot
+            y_line = y_rot
+            cv2.line(img, (0, y_line), (w, y_line), color, line_thick)
 
         label = f"{name.upper()}  {m['circumference_mm']:.0f} mm"
         (tw, th), _ = cv2.getTextSize(label, font, label_scale, label_thick)
-        # Prefer placing the label to the right of the anchor; clip to img.
-        lx = max(6, min(w - tw - 6, label_x_hint - tw - 20))
-        ly = max(th + 8, min(h - 8, label_y - 12))
+        # Right-align the label; sits just above the line unless there's no
+        # room, in which case fall back to just below.
+        lx = max(6, w - tw - 16)
+        ly = y_line - 12 if y_line > th + 20 else y_line + th + 20
+        ly = max(th + 8, min(h - 8, ly))
         cv2.putText(img, label, (lx, ly), font, label_scale, (0, 0, 0),
                     label_thick + 6)
         cv2.putText(img, label, (lx, ly), font, label_scale, color,

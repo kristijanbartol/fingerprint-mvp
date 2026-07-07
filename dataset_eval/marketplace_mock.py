@@ -100,45 +100,46 @@ def overall_fit_score(per_meas_scores):
 # second is a short chip used on alternate cards.
 _WEAR_RULES = {
     ("waist", "wide"): (
-        "The waist sits looser — a belt may be needed to keep the pants up.",
-        "waist sits looser — belt may help",
+        "The waist is looser than yours, so you'll probably want a belt.",
+        "looser at the waist, you'd want a belt",
     ),
     ("waist", "tight"): (
-        "The waist runs snugger — may feel restrictive around the middle.",
-        "waist runs snugger",
+        "The waist is snugger than yours, so it might feel tight around "
+        "the middle.",
+        "snugger at the waist",
     ),
     ("hip", "wide"): (
-        "Roomier through the seat — less form-fitting than yours.",
+        "It's roomier through the seat, so it'll feel less fitted than yours.",
         "roomier through the seat",
     ),
     ("hip", "tight"): (
-        "Closer through the seat — more form-fitting than yours.",
+        "It's closer through the seat, so more fitted than yours.",
         "closer through the seat",
     ),
     ("thigh", "wide"): (
-        "More room through the thigh — reads less shaped.",
-        "more room through the thigh",
+        "There's more room through the thigh, so it'll feel less shaped.",
+        "more room in the thigh",
     ),
     ("thigh", "tight"): (
-        "Closer through the thigh — may feel snug when sitting.",
-        "closer through the thigh",
+        "It's closer through the thigh, so it might feel snug when you sit.",
+        "snugger in the thigh",
     ),
     ("calf", "wide"): (
-        "Straighter through the calf — less shaped than yours.",
+        "It's straighter through the calf than yours.",
         "straighter through the calf",
     ),
     ("calf", "tight"): (
-        "Closer through the calf — more shaped than yours.",
+        "It's closer through the calf, so it hugs more than yours.",
         "closer through the calf",
     ),
     ("ankle", "wide"): (
-        "Less tapered at the ankle — reads more like a straight-leg or "
-        "relaxed fit than a skinny.",
-        "less tapered ankle — reads relaxed",
+        "The ankle is less tapered than yours, so it'll wear more like a "
+        "straight-leg or relaxed fit than a skinny.",
+        "less tapered ankle, wears more relaxed",
     ),
     ("ankle", "tight"): (
-        "More tapered at the ankle — reads skinnier than yours.",
-        "more tapered ankle — skinnier",
+        "The ankle is more tapered than yours, so it'll wear skinnier.",
+        "more tapered ankle, wears skinnier",
     ),
 }
 
@@ -160,32 +161,33 @@ def wearability_note(diffs, threshold_mm=30, max_lines=2):
     """
     significant = _significant_diffs(diffs, threshold_mm)
     if not significant:
-        return ("Very similar fit overall — should wear much like your "
-                "own pair.")
+        return ("Fits pretty much like yours. Should wear the same, no "
+                "surprises.")
     lines = []
     for name, diff in significant[:max_lines]:
         key = (name, "wide" if diff < 0 else "tight")
         rule = _WEAR_RULES.get(key)
         if rule:
             lines.append(rule[0])
-    return " ".join(lines) if lines else "Very similar fit overall."
+    return " ".join(lines) if lines else "Fits pretty much like yours."
 
 
 def wearability_short(diffs, threshold_mm=30):
     """One-line wearability note for the alternate cards."""
     significant = _significant_diffs(diffs, threshold_mm)
     if not significant:
-        return "very similar fit overall"
+        return "fits pretty much like yours"
     name, diff = significant[0]
     key = (name, "wide" if diff < 0 else "tight")
     rule = _WEAR_RULES.get(key)
-    return rule[1] if rule else "very similar fit overall"
+    return rule[1] if rule else "fits pretty much like yours"
 
 
 def material_interpretation(material_raw):
-    """Very rough rule-based reading of the free-text material field."""
+    """Rule-based reading of the free-text material field, phrased
+    conversationally."""
     if not material_raw:
-        return "Material not on the label — feel is unknown."
+        return "No material info on the label, so hard to say how it'll feel."
     m = material_raw.lower()
 
     def pct(word):
@@ -201,21 +203,24 @@ def material_interpretation(material_raw):
 
     bits = []
     if elast and elast >= 1:
-        bits.append(f"{elast}% elastane — noticeable stretch")
+        bits.append(f"With {elast}% elastane it has real stretch.")
     if poly and poly >= 10:
-        bits.append("polyester blend — softer, less structured than pure denim")
+        bits.append("The polyester blend makes it softer and less "
+                    "structured than pure denim.")
     elif cotton and cotton == 100 and not elast:
-        bits.append("100% cotton — rigid, no stretch, will feel stiffer")
+        bits.append("It's 100% cotton, so it's rigid and won't stretch "
+                    "the way yours might.")
     elif cotton and cotton >= 95 and not elast:
-        bits.append("mostly cotton — traditional denim feel")
+        bits.append("Mostly cotton, so a classic denim feel.")
     if visc:
-        bits.append("viscose — drapey, less structured than denim")
+        bits.append("The viscose gives it a drapey feel rather than "
+                    "structured.")
     if wool:
-        bits.append("wool content — warmer, more structured")
+        bits.append("The wool content makes it warmer and more structured.")
 
     if not bits:
-        return f"Material: {material_raw}."
-    return "  •  ".join(b.capitalize() for b in bits) + "."
+        return f"{material_raw}."
+    return " ".join(bits)
 
 
 # ---------------------------------------------------------------------------

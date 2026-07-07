@@ -437,11 +437,13 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
     hax = fig.add_subplot(outer[0, :])
     hax.axis("off")
     hax.set_facecolor(BG)
-    hax.text(0.005, 0.62, brand_title,
+    hax.text(0.005, 0.65, brand_title,
              fontsize=26, fontweight="bold", color=INK,
              transform=hax.transAxes, va="center")
-    hax.text(0.005, 0.22, "single-photo garment matching",
-             fontsize=11, color=INK_SOFT,
+    hax.text(0.005, 0.20,
+             "Upload a photo of your jeans. We find the closest matches "
+             "from a second-hand marketplace.",
+             fontsize=12, color=INK_SOFT,
              transform=hax.transAxes, va="center")
     hax.text(0.995, 0.5, "MATCH REPORT",
              fontsize=10, color=INK_SOFT,
@@ -454,7 +456,7 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
     ax_home = fig.add_subplot(outer[1, 0])
     ax_home.imshow(Image.open(home_panel_path).convert("RGB"))
     ax_home.axis("off")
-    ax_home.set_title("HOME GARMENT", fontsize=10, color=INK_SOFT, pad=8,
+    ax_home.set_title("YOU UPLOADED", fontsize=12, color=INK, pad=10,
                       loc="left", fontweight="bold")
 
     # Top match — split middle column into 4 rows: photo, brand meta,
@@ -470,8 +472,8 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
     ax_match = fig.add_subplot(match_inner[0, 0])
     ax_match.imshow(Image.open(row_top["front"]).convert("RGB"))
     ax_match.axis("off")
-    ax_match.set_title("RECOMMENDED PICK", fontsize=10, color=INK_SOFT,
-                       pad=8, loc="left", fontweight="bold")
+    ax_match.set_title("TOP MATCH", fontsize=12, color=INK,
+                       pad=10, loc="left", fontweight="bold")
     ax_meta = fig.add_subplot(match_inner[1, 0])
     ax_meta.axis("off")
     material_top = tidy_material((labels_top or {}).get("material")) or "material n/a"
@@ -514,7 +516,7 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
     for spine in ax_fit.spines.values():
         spine.set_edgecolor(BORDER)
         spine.set_linewidth(1)
-    ax_fit.set_title("FIT ANALYSIS", fontsize=10, color=INK_SOFT, pad=8,
+    ax_fit.set_title("HOW WELL IT MATCHES", fontsize=12, color=INK, pad=10,
                      loc="left", fontweight="bold")
 
     # Big score
@@ -556,7 +558,8 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
     # Bottom strip — alternates.
     bax = fig.add_subplot(outer[2, :])
     bax.axis("off")
-    bax.text(0.005, 0.98, "OTHER CANDIDATES", fontsize=10, color=INK_SOFT,
+    bax.text(0.005, 0.98, "OTHER MATCHES YOU MIGHT LIKE",
+             fontsize=12, color=INK,
              transform=bax.transAxes, fontweight="bold", va="top")
 
     # Two side-by-side alternate cards. Each card is a nested 2-column

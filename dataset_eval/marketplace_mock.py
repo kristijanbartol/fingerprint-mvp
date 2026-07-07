@@ -93,6 +93,27 @@ def overall_fit_score(per_meas_scores):
     return float(np.mean(list(per_meas_scores.values())))
 
 
+def fit_interpretation_short(diffs):
+    """One-line compact summary for the alternate cards.
+
+    Names the two closest landmarks (if any) and the single biggest gap
+    (if any). Kept short enough to fit one row in a small card.
+    """
+    close = [k for k, v in diffs.items() if abs(v) <= 20]
+    off = sorted([(k, v) for k, v in diffs.items() if abs(v) > 30],
+                 key=lambda kv: -abs(kv[1]))
+    parts = []
+    if close:
+        parts.append("close through " + ", ".join(close[:2]))
+    if off:
+        k, v = off[0]
+        direction = "wider" if v < 0 else "tighter"
+        parts.append(f"{abs(v):.0f} mm {direction} at {k}")
+    if not parts:
+        return "very close overall"
+    return "  ·  ".join(parts)
+
+
 def fit_interpretation(diffs):
     """Short natural-language sentence describing the diff pattern."""
     named = {
@@ -462,13 +483,17 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
                 fontsize=14, color=INK_SOFT, transform=ax_fit.transAxes,
                 va="top")
 
+    # Divider between the headline score and the per-measurement rows.
+    ax_fit.plot([0.06, 0.94], [0.56, 0.56], color=BORDER, lw=0.8,
+                transform=ax_fit.transAxes, solid_capstyle="butt")
+
     # Per-measurement gauges (5 rows). With the note panels moved to the
     # recommended-pick column, the right column has more room — grow the
     # gauges and add a small subtitle so it doesn't feel empty.
-    ax_fit.text(0.06, 0.48, "PER MEASUREMENT",
+    ax_fit.text(0.06, 0.51, "PER MEASUREMENT",
                 fontsize=9, color=INK_SOFT, fontweight="bold",
                 transform=ax_fit.transAxes, va="top")
-    top_y = 0.44
+    top_y = 0.47
     row_h = 0.084
     for i, m in enumerate(MEASUREMENTS):
         render_measurement_gauge(
@@ -538,20 +563,30 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
                      wrap_text(material, 34),
                      fontsize=10.5, color=INK,
                      transform=ax_text.transAxes, va="top", linespacing=1.35)
-        ax_text.text(pad_x, 0.44,
+        ax_text.text(pad_x, 0.46,
                      f"{price} €  ·  condition {cond}",
                      fontsize=10, color=INK_SOFT,
                      transform=ax_text.transAxes, va="top")
 
+        # 1-line fit note so users can decide between alternates without
+        # clicking through. Coloured with the fit-score palette so it ties
+        # visually to the score below.
+        row_note = fit_interpretation_short(row_diffs)
+        ax_text.text(pad_x, 0.34,
+                     wrap_text(row_note, 46),
+                     fontsize=10, color=score_color(row_overall),
+                     transform=ax_text.transAxes, va="top",
+                     linespacing=1.35, fontstyle="italic")
+
         # Fit similarity number, prominent
-        ax_text.text(pad_x, 0.30, "FIT SIMILARITY", fontsize=8.5,
+        ax_text.text(pad_x, 0.19, "FIT SIMILARITY", fontsize=8.5,
                      color=INK_SOFT, transform=ax_text.transAxes,
                      fontweight="bold", va="top")
-        ax_text.text(pad_x, 0.22, f"{row_overall:.0f}", fontsize=32,
+        ax_text.text(pad_x, 0.13, f"{row_overall:.0f}", fontsize=32,
                      color=score_color(row_overall),
                      transform=ax_text.transAxes, fontweight="bold",
                      va="top")
-        ax_text.text(pad_x + 0.15, 0.11, "/ 100", fontsize=12,
+        ax_text.text(pad_x + 0.15, 0.02, "/ 100", fontsize=12,
                      color=INK_SOFT, transform=ax_text.transAxes,
                      va="top")
 

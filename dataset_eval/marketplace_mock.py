@@ -178,6 +178,40 @@ def score_color(score):
     return BAD
 
 
+def _draw_note_panel(ax, x, y, w, h, title, body, accent):
+    """Render a highlighted "notes" panel inside an axes.
+
+    Layout: soft-tinted background rectangle spanning the panel, a 4-unit
+    accent bar on the left, a bold uppercase title, then body text at a
+    larger size than the card's caption scale so the interpretation
+    stands out.
+    """
+    # Background tint (very subtle so it doesn't overpower)
+    ax.add_patch(Rectangle(
+        (x, y), w, h,
+        transform=ax.transAxes,
+        facecolor="#faf7ec", edgecolor="#e5e0cd", linewidth=0.8,
+        zorder=2,
+    ))
+    # Accent bar on the left
+    bar_w = w * 0.018
+    ax.add_patch(Rectangle(
+        (x, y), bar_w, h,
+        transform=ax.transAxes,
+        facecolor=accent, edgecolor="none",
+        zorder=3,
+    ))
+    # Title
+    inner_x = x + w * 0.055
+    ax.text(inner_x, y + h * 0.86, title,
+            fontsize=9.5, color=accent, fontweight="bold",
+            transform=ax.transAxes, va="top")
+    # Body
+    ax.text(inner_x, y + h * 0.62, body,
+            fontsize=11.5, color=INK, transform=ax.transAxes,
+            va="top", linespacing=1.5)
+
+
 def add_card(ax, x, y, w, h, facecolor=CARD, edgecolor=BORDER, lw=1.0):
     box = FancyBboxPatch(
         (x, y), w, h,
@@ -409,7 +443,7 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
     # Per-measurement gauges (5 rows). Slightly tighter row height so the
     # bottom text sections get room without overlapping the last row.
     top_y = 0.72
-    row_h = 0.083
+    row_h = 0.072
     for i, m in enumerate(MEASUREMENTS):
         render_measurement_gauge(
             ax_fit,
@@ -422,18 +456,22 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
             match_val=row_top["vec"][MEASUREMENTS.index(m)],
         )
 
-    # Interpretation blurb. Give each section room for 2 wrapped lines
-    # without overlapping the next section header.
-    ax_fit.text(0.06, 0.235, "FIT NOTES", fontsize=9, color=INK_SOFT,
-                transform=ax_fit.transAxes, fontweight="bold")
-    ax_fit.text(0.06, 0.205, wrap_text(fit_note, 64),
-                fontsize=10.5, color=INK, transform=ax_fit.transAxes,
-                va="top", linespacing=1.45)
-    ax_fit.text(0.06, 0.10, "MATERIAL", fontsize=9, color=INK_SOFT,
-                transform=ax_fit.transAxes, fontweight="bold")
-    ax_fit.text(0.06, 0.07, wrap_text(material_note, 64),
-                fontsize=10.5, color=INK, transform=ax_fit.transAxes,
-                va="top", linespacing=1.45)
+    # Two highlighted panels: FIT NOTES (accent = fit-score colour) and
+    # MATERIAL (neutral accent). Each panel has a colored left bar, a
+    # tinted background, and larger body text so the interpretation is
+    # visually distinct from the caption-scale gauge sub-lines above.
+    _draw_note_panel(
+        ax_fit,
+        x=0.045, y=0.19, w=0.91, h=0.145,
+        title="FIT NOTES", body=wrap_text(fit_note, 62),
+        accent=score_color(overall),
+    )
+    _draw_note_panel(
+        ax_fit,
+        x=0.045, y=0.03, w=0.91, h=0.145,
+        title="MATERIAL FEEL", body=wrap_text(material_note, 62),
+        accent="#4c6a86",
+    )
 
     # Bottom strip — alternates.
     bax = fig.add_subplot(outer[2, :])

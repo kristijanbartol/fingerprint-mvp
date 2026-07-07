@@ -390,9 +390,15 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
     ax_home.set_title("HOME GARMENT", fontsize=10, color=INK_SOFT, pad=8,
                       loc="left", fontweight="bold")
 
-    # Top match — split middle column into photo (top) + meta (bottom).
+    # Top match — split middle column into 4 rows: photo, brand meta,
+    # fit-notes panel, material-feel panel. The two interpretation panels
+    # sit *with the product* (mirroring how the alternates present
+    # image + info together); the score + gauges live in the fit-analysis
+    # column to the right.
     match_inner = outer[1, 1].subgridspec(
-        nrows=2, ncols=1, height_ratios=[3.6, 1.0], hspace=0.05,
+        nrows=4, ncols=1,
+        height_ratios=[3.1, 1.05, 1.05, 1.05],
+        hspace=0.05,
     )
     ax_match = fig.add_subplot(match_inner[0, 0])
     ax_match.imshow(Image.open(row_top["front"]).convert("RGB"))
@@ -406,16 +412,32 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
     cond_top = (labels_top or {}).get("condition", "?")
     ax_meta.text(0.0, 0.95, row_top["brand"], fontsize=22, color=INK,
                  transform=ax_meta.transAxes, fontweight="bold", va="top")
-    ax_meta.text(0.0, 0.60,
+    ax_meta.text(0.0, 0.55,
                  f"EU {row_top['size']} · {row_top['category']}"
                  + (f" · {row_top['cut']}" if row_top["cut"] else ""),
                  fontsize=12, color=INK_SOFT,
                  transform=ax_meta.transAxes, va="top")
-    ax_meta.text(0.0, 0.38, material_top, fontsize=11, color=INK,
+    ax_meta.text(0.0, 0.30, material_top, fontsize=11, color=INK,
                  transform=ax_meta.transAxes, va="top")
-    ax_meta.text(0.0, 0.13, f"{price_top} €  ·  condition {cond_top}",
+    ax_meta.text(0.0, 0.05, f"{price_top} €  ·  condition {cond_top}",
                  fontsize=10, color=INK_SOFT,
                  transform=ax_meta.transAxes, va="top")
+
+    # Interpretation panels below the meta block (accent-styled).
+    ax_notes = fig.add_subplot(match_inner[2, 0])
+    ax_notes.axis("off")
+    _draw_note_panel(
+        ax_notes, x=0.0, y=0.0, w=1.0, h=1.0,
+        title="FIT NOTES", body=wrap_text(fit_note, 74),
+        accent=score_color(overall),
+    )
+    ax_matnote = fig.add_subplot(match_inner[3, 0])
+    ax_matnote.axis("off")
+    _draw_note_panel(
+        ax_matnote, x=0.0, y=0.0, w=1.0, h=1.0,
+        title="MATERIAL FEEL", body=wrap_text(material_note, 74),
+        accent="#4c6a86",
+    )
 
     # Fit analysis card.
     ax_fit = fig.add_subplot(outer[1, 2])
@@ -440,10 +462,14 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
                 fontsize=14, color=INK_SOFT, transform=ax_fit.transAxes,
                 va="top")
 
-    # Per-measurement gauges (5 rows). Slightly tighter row height so the
-    # bottom text sections get room without overlapping the last row.
-    top_y = 0.72
-    row_h = 0.072
+    # Per-measurement gauges (5 rows). With the note panels moved to the
+    # recommended-pick column, the right column has more room — grow the
+    # gauges and add a small subtitle so it doesn't feel empty.
+    ax_fit.text(0.06, 0.48, "PER MEASUREMENT",
+                fontsize=9, color=INK_SOFT, fontweight="bold",
+                transform=ax_fit.transAxes, va="top")
+    top_y = 0.44
+    row_h = 0.084
     for i, m in enumerate(MEASUREMENTS):
         render_measurement_gauge(
             ax_fit,
@@ -455,23 +481,6 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
             home_val=home_ms[m],
             match_val=row_top["vec"][MEASUREMENTS.index(m)],
         )
-
-    # Two highlighted panels: FIT NOTES (accent = fit-score colour) and
-    # MATERIAL (neutral accent). Each panel has a colored left bar, a
-    # tinted background, and larger body text so the interpretation is
-    # visually distinct from the caption-scale gauge sub-lines above.
-    _draw_note_panel(
-        ax_fit,
-        x=0.045, y=0.19, w=0.91, h=0.145,
-        title="FIT NOTES", body=wrap_text(fit_note, 62),
-        accent=score_color(overall),
-    )
-    _draw_note_panel(
-        ax_fit,
-        x=0.045, y=0.03, w=0.91, h=0.145,
-        title="MATERIAL FEEL", body=wrap_text(material_note, 62),
-        accent="#4c6a86",
-    )
 
     # Bottom strip — alternates.
     bax = fig.add_subplot(outer[2, :])

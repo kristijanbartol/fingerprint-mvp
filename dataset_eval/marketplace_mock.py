@@ -27,9 +27,19 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, Rectangle
 from PIL import Image
+
+# System sans-serif chain — Helvetica Neue is the primary, Avenir Next
+# and Helvetica as fallbacks (all common on macOS), then DejaVu Sans as
+# the ultimate matplotlib default.
+mpl.rcParams["font.family"] = "sans-serif"
+mpl.rcParams["font.sans-serif"] = [
+    "Helvetica Neue", "Avenir Next", "Helvetica", "Arial", "DejaVu Sans"
+]
+mpl.rcParams["axes.unicode_minus"] = False
 
 # Reuse the measurement + matching plumbing already in home2market.py.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -222,6 +232,25 @@ def render_measurement_gauge(fig_ax, x, y, w, h, name, diff, score,
                 transform=fig_ax.transAxes, va="center")
 
 
+def tidy_material(raw):
+    """Normalise the free-text material label (e.g. "80%cotton, 18%polyester"
+    → "80% cotton, 18% polyester"). Also capitalise fibre names."""
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    # "80%cotton" → "80% cotton"
+    s = re.sub(r"(\d+)\s*%\s*", r"\1% ", s)
+    # collapse repeated whitespace
+    s = re.sub(r"\s+", " ", s)
+    # normalise separator around commas
+    s = re.sub(r"\s*,\s*", ", ", s)
+    # capitalise known fibre words
+    for fibre in ("cotton", "polyester", "elastane", "spandex", "viscose",
+                  "rayon", "wool", "linen", "silk", "nylon"):
+        s = re.sub(rf"\b{fibre}\b", fibre.capitalize(), s, flags=re.I)
+    return s
+
+
 def wrap_text(text, max_chars):
     """Basic greedy word wrap. matplotlib's wrap=True is unreliable at
     axes-relative coords."""
@@ -291,57 +320,68 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
     material_note = material_interpretation((labels_top or {}).get("material"))
 
     # 3. Render.
-    fig = plt.figure(figsize=(14.5, 10.8), facecolor=BG)
+    fig = plt.figure(figsize=(15.0, 11.5), facecolor=BG)
     outer = fig.add_gridspec(
         nrows=3, ncols=3,
-        height_ratios=[0.08, 0.7, 0.22],
+        height_ratios=[0.075, 0.62, 0.305],
         # Home photo is portrait, match photo is landscape. Make the match
         # column wider so its landscape image fills the panel rather than
         # sitting small in the middle.
         width_ratios=[0.85, 1.35, 1.2],
         left=0.03, right=0.97, top=0.97, bottom=0.03,
-        hspace=0.05, wspace=0.04,
+        hspace=0.06, wspace=0.04,
     )
 
     # Header row (spans full width).
     hax = fig.add_subplot(outer[0, :])
     hax.axis("off")
     hax.set_facecolor(BG)
-    hax.text(0.01, 0.5, brand_title,
-             fontsize=22, fontweight="bold", color=INK,
+    hax.text(0.005, 0.62, brand_title,
+             fontsize=26, fontweight="bold", color=INK,
              transform=hax.transAxes, va="center")
-    hax.text(0.99, 0.5, "match report",
-             fontsize=12, color=INK_SOFT,
-             transform=hax.transAxes, va="center", ha="right")
-    hax.plot([0.01, 0.99], [0.05, 0.05], color=BORDER, lw=1,
+    hax.text(0.005, 0.22, "single-photo garment matching",
+             fontsize=11, color=INK_SOFT,
+             transform=hax.transAxes, va="center")
+    hax.text(0.995, 0.5, "MATCH REPORT",
+             fontsize=10, color=INK_SOFT,
+             transform=hax.transAxes, va="center", ha="right",
+             fontweight="bold")
+    hax.plot([0.005, 0.995], [0.02, 0.02], color=BORDER, lw=1,
              transform=hax.transAxes)
 
     # Home panel.
     ax_home = fig.add_subplot(outer[1, 0])
     ax_home.imshow(Image.open(home_panel_path).convert("RGB"))
     ax_home.axis("off")
-    ax_home.set_title("home garment", fontsize=12, color=INK, pad=8,
+    ax_home.set_title("HOME GARMENT", fontsize=10, color=INK_SOFT, pad=8,
                       loc="left", fontweight="bold")
 
-    # Top match photo.
-    ax_match = fig.add_subplot(outer[1, 1])
+    # Top match — split middle column into photo (top) + meta (bottom).
+    match_inner = outer[1, 1].subgridspec(
+        nrows=2, ncols=1, height_ratios=[3.6, 1.0], hspace=0.05,
+    )
+    ax_match = fig.add_subplot(match_inner[0, 0])
     ax_match.imshow(Image.open(row_top["front"]).convert("RGB"))
     ax_match.axis("off")
-    ax_match.set_title("recommended pick", fontsize=12, color=INK, pad=8,
-                       loc="left", fontweight="bold")
-    # Meta strip under the photo.
-    meta_parts = [
-        f"{row_top['brand']}  ·  EU {row_top['size']} ({row_top['category']})",
-        (row_top['cut'] or "—") + "  ·  "
-        + (labels_top or {}).get("material", "material n/a"),
-        format_price((labels_top or {}).get("price"))
-        + "  ·  condition "
-        + str((labels_top or {}).get("condition", "?")),
-    ]
-    # Use x-axis text below the image (Matplotlib will clip if outside axes).
-    ax_match.text(0.5, -0.02, "\n".join(meta_parts),
-                  transform=ax_match.transAxes, ha="center", va="top",
-                  fontsize=10, color=INK)
+    ax_match.set_title("RECOMMENDED PICK", fontsize=10, color=INK_SOFT,
+                       pad=8, loc="left", fontweight="bold")
+    ax_meta = fig.add_subplot(match_inner[1, 0])
+    ax_meta.axis("off")
+    material_top = tidy_material((labels_top or {}).get("material")) or "material n/a"
+    price_top = (labels_top or {}).get("price") or "price n/a"
+    cond_top = (labels_top or {}).get("condition", "?")
+    ax_meta.text(0.0, 0.95, row_top["brand"], fontsize=22, color=INK,
+                 transform=ax_meta.transAxes, fontweight="bold", va="top")
+    ax_meta.text(0.0, 0.60,
+                 f"EU {row_top['size']} · {row_top['category']}"
+                 + (f" · {row_top['cut']}" if row_top["cut"] else ""),
+                 fontsize=12, color=INK_SOFT,
+                 transform=ax_meta.transAxes, va="top")
+    ax_meta.text(0.0, 0.38, material_top, fontsize=11, color=INK,
+                 transform=ax_meta.transAxes, va="top")
+    ax_meta.text(0.0, 0.13, f"{price_top} €  ·  condition {cond_top}",
+                 fontsize=10, color=INK_SOFT,
+                 transform=ax_meta.transAxes, va="top")
 
     # Fit analysis card.
     ax_fit = fig.add_subplot(outer[1, 2])
@@ -351,7 +391,7 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
     for spine in ax_fit.spines.values():
         spine.set_edgecolor(BORDER)
         spine.set_linewidth(1)
-    ax_fit.set_title("fit analysis", fontsize=12, color=INK, pad=8,
+    ax_fit.set_title("FIT ANALYSIS", fontsize=10, color=INK_SOFT, pad=8,
                      loc="left", fontweight="bold")
 
     # Big score
@@ -366,9 +406,10 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
                 fontsize=14, color=INK_SOFT, transform=ax_fit.transAxes,
                 va="top")
 
-    # Per-measurement gauges (5 rows).
-    top_y = 0.70
-    row_h = 0.09
+    # Per-measurement gauges (5 rows). Slightly tighter row height so the
+    # bottom text sections get room without overlapping the last row.
+    top_y = 0.72
+    row_h = 0.083
     for i, m in enumerate(MEASUREMENTS):
         render_measurement_gauge(
             ax_fit,
@@ -381,32 +422,28 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
             match_val=row_top["vec"][MEASUREMENTS.index(m)],
         )
 
-    # Interpretation blurb. Manual wrap at ~46 characters so text stays
-    # inside the card.
-    ax_fit.text(0.06, 0.22, "FIT NOTES",
-                fontsize=9, color=INK_SOFT, transform=ax_fit.transAxes,
-                fontweight="bold")
-    ax_fit.text(0.06, 0.19, wrap_text(fit_note, 46),
-                fontsize=10, color=INK, transform=ax_fit.transAxes,
-                va="top", linespacing=1.35)
-    ax_fit.text(0.06, 0.10, "MATERIAL NOTES",
-                fontsize=9, color=INK_SOFT, transform=ax_fit.transAxes,
-                fontweight="bold")
-    ax_fit.text(0.06, 0.07, wrap_text(material_note, 46),
-                fontsize=10, color=INK, transform=ax_fit.transAxes,
-                va="top", linespacing=1.35)
+    # Interpretation blurb. Give each section room for 2 wrapped lines
+    # without overlapping the next section header.
+    ax_fit.text(0.06, 0.235, "FIT NOTES", fontsize=9, color=INK_SOFT,
+                transform=ax_fit.transAxes, fontweight="bold")
+    ax_fit.text(0.06, 0.205, wrap_text(fit_note, 64),
+                fontsize=10.5, color=INK, transform=ax_fit.transAxes,
+                va="top", linespacing=1.45)
+    ax_fit.text(0.06, 0.10, "MATERIAL", fontsize=9, color=INK_SOFT,
+                transform=ax_fit.transAxes, fontweight="bold")
+    ax_fit.text(0.06, 0.07, wrap_text(material_note, 64),
+                fontsize=10.5, color=INK, transform=ax_fit.transAxes,
+                va="top", linespacing=1.45)
 
     # Bottom strip — alternates.
     bax = fig.add_subplot(outer[2, :])
     bax.axis("off")
-    bax.text(0.01, 0.93, "other candidates",
-             fontsize=11, color=INK, transform=bax.transAxes,
-             fontweight="bold")
+    bax.text(0.005, 0.98, "OTHER CANDIDATES", fontsize=10, color=INK_SOFT,
+             transform=bax.transAxes, fontweight="bold", va="top")
 
-    alt_gs = outer[2, :].subgridspec(
-        nrows=1, ncols=6, wspace=0.06,
-        width_ratios=[0.5, 0.5, 1.5, 0.5, 0.5, 1.5],
-    )
+    # Two side-by-side alternate cards. Each card is a nested 2-column
+    # subplot: image (left) + rich info (right).
+    alt_gs = outer[2, :].subgridspec(nrows=1, ncols=2, wspace=0.035)
     for slot, (dist, row) in enumerate(ranked[1:3]):
         labels = None
         for st in ("station1", "station2", "station3"):
@@ -417,28 +454,59 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
                      for i, m in enumerate(MEASUREMENTS)}
         row_scores = {m: fit_score(row_diffs[m]) for m in MEASUREMENTS}
         row_overall = overall_fit_score(row_scores)
-        chip_lines = [
-            f"{row['brand']}  ·  EU {row['size']} ({row['category']})",
-            (labels or {}).get("material", "material n/a"),
-            f"fit  {row_overall:.0f} / 100",
-        ]
-        base_col = slot * 3
-        ax_thumb = fig.add_subplot(alt_gs[0, base_col + 1])
+        material = tidy_material((labels or {}).get("material")) or "material n/a"
+        price = (labels or {}).get("price") or "price n/a"
+        cond = (labels or {}).get("condition", "?")
+
+        inner = alt_gs[0, slot].subgridspec(
+            nrows=1, ncols=2, width_ratios=[1.05, 1.05], wspace=0.02,
+        )
+        ax_thumb = fig.add_subplot(inner[0, 0])
         ax_thumb.imshow(Image.open(row["front"]).convert("RGB"))
         ax_thumb.set_xticks([])
         ax_thumb.set_yticks([])
         for spine in ax_thumb.spines.values():
             spine.set_edgecolor(BORDER)
             spine.set_linewidth(1)
-        ax_text = fig.add_subplot(alt_gs[0, base_col + 2])
-        ax_text.axis("off")
-        ax_text.text(0.02, 0.85, chip_lines[0], fontsize=10, color=INK,
-                     transform=ax_text.transAxes, fontweight="bold")
-        ax_text.text(0.02, 0.55, chip_lines[1], fontsize=9, color=INK_SOFT,
-                     transform=ax_text.transAxes)
-        ax_text.text(0.02, 0.25, chip_lines[2], fontsize=10,
+
+        ax_text = fig.add_subplot(inner[0, 1])
+        ax_text.set_facecolor(CARD)
+        ax_text.set_xticks([])
+        ax_text.set_yticks([])
+        for spine in ax_text.spines.values():
+            spine.set_edgecolor(BORDER)
+            spine.set_linewidth(1)
+
+        # Typography stack inside the info card.
+        pad_x = 0.08
+        ax_text.text(pad_x, 0.90, row["brand"], fontsize=17, color=INK,
+                     transform=ax_text.transAxes, fontweight="bold",
+                     va="top")
+        ax_text.text(pad_x, 0.79,
+                     f"EU {row['size']} · {row['category']}"
+                     + (f" · {row['cut']}" if row['cut'] else ""),
+                     fontsize=11, color=INK_SOFT,
+                     transform=ax_text.transAxes, va="top")
+        ax_text.text(pad_x, 0.66,
+                     wrap_text(material, 34),
+                     fontsize=10.5, color=INK,
+                     transform=ax_text.transAxes, va="top", linespacing=1.35)
+        ax_text.text(pad_x, 0.44,
+                     f"{price} €  ·  condition {cond}",
+                     fontsize=10, color=INK_SOFT,
+                     transform=ax_text.transAxes, va="top")
+
+        # Fit similarity number, prominent
+        ax_text.text(pad_x, 0.30, "FIT SIMILARITY", fontsize=8.5,
+                     color=INK_SOFT, transform=ax_text.transAxes,
+                     fontweight="bold", va="top")
+        ax_text.text(pad_x, 0.22, f"{row_overall:.0f}", fontsize=32,
                      color=score_color(row_overall),
-                     transform=ax_text.transAxes, fontweight="bold")
+                     transform=ax_text.transAxes, fontweight="bold",
+                     va="top")
+        ax_text.text(pad_x + 0.15, 0.11, "/ 100", fontsize=12,
+                     color=INK_SOFT, transform=ax_text.transAxes,
+                     va="top")
 
     fig.savefig(out_path, dpi=140, facecolor=BG)
     print(f"Saved: {out_path}")

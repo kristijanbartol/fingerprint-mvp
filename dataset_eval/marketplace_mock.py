@@ -93,52 +93,93 @@ def overall_fit_score(per_meas_scores):
     return float(np.mean(list(per_meas_scores.values())))
 
 
-def fit_interpretation_short(diffs):
-    """One-line compact summary for the alternate cards.
+# Wearability rules — each significant per-measurement difference maps to
+# a practical fit consequence rather than a restated number. `wide` = the
+# match is wider than home (diff < 0); `tight` = the match is tighter
+# (diff > 0). The first form is the full sentence used in FIT NOTES; the
+# second is a short chip used on alternate cards.
+_WEAR_RULES = {
+    ("waist", "wide"): (
+        "The waist sits looser — a belt may be needed to keep the pants up.",
+        "waist sits looser — belt may help",
+    ),
+    ("waist", "tight"): (
+        "The waist runs snugger — may feel restrictive around the middle.",
+        "waist runs snugger",
+    ),
+    ("hip", "wide"): (
+        "Roomier through the seat — less form-fitting than yours.",
+        "roomier through the seat",
+    ),
+    ("hip", "tight"): (
+        "Closer through the seat — more form-fitting than yours.",
+        "closer through the seat",
+    ),
+    ("thigh", "wide"): (
+        "More room through the thigh — reads less shaped.",
+        "more room through the thigh",
+    ),
+    ("thigh", "tight"): (
+        "Closer through the thigh — may feel snug when sitting.",
+        "closer through the thigh",
+    ),
+    ("calf", "wide"): (
+        "Straighter through the calf — less shaped than yours.",
+        "straighter through the calf",
+    ),
+    ("calf", "tight"): (
+        "Closer through the calf — more shaped than yours.",
+        "closer through the calf",
+    ),
+    ("ankle", "wide"): (
+        "Less tapered at the ankle — reads more like a straight-leg or "
+        "relaxed fit than a skinny.",
+        "less tapered ankle — reads relaxed",
+    ),
+    ("ankle", "tight"): (
+        "More tapered at the ankle — reads skinnier than yours.",
+        "more tapered ankle — skinnier",
+    ),
+}
 
-    Names the two closest landmarks (if any) and the single biggest gap
-    (if any). Kept short enough to fit one row in a small card.
+
+def _significant_diffs(diffs, threshold_mm=30):
+    """Return diffs ordered by magnitude, wider ones filtered to be a real
+    signal (above `threshold_mm`)."""
+    return sorted(
+        [(k, v) for k, v in diffs.items() if abs(v) >= threshold_mm],
+        key=lambda kv: -abs(kv[1]),
+    )
+
+
+def wearability_note(diffs, threshold_mm=30, max_lines=2):
+    """Full-sentence wearability interpretation for FIT NOTES.
+
+    Skips measurements that are close (those are already visible in the
+    gauges) and translates the notable ones into practical fit language.
     """
-    close = [k for k, v in diffs.items() if abs(v) <= 20]
-    off = sorted([(k, v) for k, v in diffs.items() if abs(v) > 30],
-                 key=lambda kv: -abs(kv[1]))
-    parts = []
-    if close:
-        parts.append("close through " + ", ".join(close[:2]))
-    if off:
-        k, v = off[0]
-        direction = "wider" if v < 0 else "tighter"
-        parts.append(f"{abs(v):.0f} mm {direction} at {k}")
-    if not parts:
-        return "very close overall"
-    return "  ·  ".join(parts)
+    significant = _significant_diffs(diffs, threshold_mm)
+    if not significant:
+        return ("Very similar fit overall — should wear much like your "
+                "own pair.")
+    lines = []
+    for name, diff in significant[:max_lines]:
+        key = (name, "wide" if diff < 0 else "tight")
+        rule = _WEAR_RULES.get(key)
+        if rule:
+            lines.append(rule[0])
+    return " ".join(lines) if lines else "Very similar fit overall."
 
 
-def fit_interpretation(diffs):
-    """Short natural-language sentence describing the diff pattern."""
-    named = {
-        "waist": "waist", "hip": "hip", "thigh": "thigh",
-        "calf": "calf", "ankle": "ankle",
-    }
-    close = [k for k, v in diffs.items() if abs(v) <= 20]
-    off = [(k, v) for k, v in diffs.items() if abs(v) > 40]
-    off.sort(key=lambda kv: -abs(kv[1]))
-
-    if not off:
-        return ("Essentially the same fit — every landmark is within about "
-                "a half-size of yours.")
-    parts = []
-    if close:
-        close_names = ", ".join(named[k] for k in close)
-        parts.append(f"Close through {close_names}.")
-    for k, v in off[:2]:
-        # diff = home - match. v > 0 → match smaller (tighter);
-        # v < 0 → match larger (wider). Phrase from the match's POV.
-        direction = "wider" if v < 0 else "tighter"
-        parts.append(
-            f"Match is {abs(v):.0f} mm {direction} at the {named[k]}."
-        )
-    return " ".join(parts)
+def wearability_short(diffs, threshold_mm=30):
+    """One-line wearability note for the alternate cards."""
+    significant = _significant_diffs(diffs, threshold_mm)
+    if not significant:
+        return "very similar fit overall"
+    name, diff = significant[0]
+    key = (name, "wide" if diff < 0 else "tight")
+    rule = _WEAR_RULES.get(key)
+    return rule[1] if rule else "very similar fit overall"
 
 
 def material_interpretation(material_raw):
@@ -371,7 +412,7 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
              for i, m in enumerate(MEASUREMENTS)}
     per_scores = {m: fit_score(diffs[m]) for m in MEASUREMENTS}
     overall = overall_fit_score(per_scores)
-    fit_note = fit_interpretation(diffs)
+    fit_note = wearability_note(diffs)
     material_note = material_interpretation((labels_top or {}).get("material"))
 
     # 3. Render.
@@ -571,7 +612,7 @@ def build_mockup(image_path, out_path, dataset_root, csv_path,
         # 1-line fit note so users can decide between alternates without
         # clicking through. Coloured with the fit-score palette so it ties
         # visually to the score below.
-        row_note = fit_interpretation_short(row_diffs)
+        row_note = wearability_short(row_diffs)
         ax_text.text(pad_x, 0.34,
                      wrap_text(row_note, 46),
                      fontsize=10, color=score_color(row_overall),
